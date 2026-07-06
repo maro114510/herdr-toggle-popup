@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# toggle.sh — workspace-scoped popup toggle: close-on-second-press, opens at the focused pane's cwd.
+# toggle.sh — popup toggle: close-on-second-press, opens at the focused pane's cwd.
+# Scoped by workspace by default; set scope = "directory" in $HERDR_PLUGIN_CONFIG_DIR/config.toml
+# to share popups by the focused pane's cwd instead, across workspaces.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -12,13 +14,35 @@ entrypoint="${1:?usage: toggle.sh <entrypoint>}"
 herdr_bin="${HERDR_BIN_PATH:-herdr}"
 workspace_id="${HERDR_WORKSPACE_ID:?HERDR_WORKSPACE_ID must be set}"
 
-key="workspace:${workspace_id}:${entrypoint}"
-
 # Reads the focused pane's cwd out of the plugin invocation context.
 # Herdr's overlay panes always target the active pane, so this is the cwd the popup should open at.
 _toggle_focused_cwd() {
   printf '%s' "${HERDR_PLUGIN_CONTEXT_JSON:-}" | jq -r '.focused_pane_cwd? // empty' 2>/dev/null || true
 }
+
+# Reads the opt-in `scope` key from $HERDR_PLUGIN_CONFIG_DIR/config.toml.
+# Defaults to "workspace" when the directory, file, or key is absent.
+_toggle_scope_mode() {
+  local config_file value
+  [ -n "${HERDR_PLUGIN_CONFIG_DIR:-}" ] || { printf 'workspace'; return; }
+  config_file="${HERDR_PLUGIN_CONFIG_DIR}/config.toml"
+  [ -f "${config_file}" ] || { printf 'workspace'; return; }
+  value="$(sed -nE 's/^[[:space:]]*scope[[:space:]]*=[[:space:]]*"([^"]*)"[[:space:]]*$/\1/p' "${config_file}" | head -n1)"
+  printf '%s' "${value:-workspace}"
+}
+
+scope_mode="$(_toggle_scope_mode)"
+
+if [ "${scope_mode}" = "directory" ]; then
+  cwd="$(_toggle_focused_cwd)"
+  if [ -z "${cwd}" ]; then
+    printf 'toggle.sh: could not determine the focused pane'\''s cwd\n' >&2
+    exit 1
+  fi
+  key="directory:${cwd}:${entrypoint}"
+else
+  key="workspace:${workspace_id}:${entrypoint}"
+fi
 
 # Opens a new popup pane and, on success, registers its pane_id under $key.
 # On any failure, prints a short message to stderr and leaves the registry untouched.
@@ -47,7 +71,7 @@ _toggle_open() {
     return 1
   fi
 
-  state_set "${key}" "${pane_id}" "${PLUGIN_ID}" "${entrypoint}" "workspace" "${workspace_id}" "" "$(($(date +%s) * 1000))"
+  state_set "${key}" "${pane_id}" "${PLUGIN_ID}" "${entrypoint}" "${scope_mode}" "${workspace_id}" "" "$(($(date +%s) * 1000))"
 }
 
 entry="$(state_get "${key}" 2>/dev/null || true)"

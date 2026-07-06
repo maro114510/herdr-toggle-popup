@@ -9,10 +9,26 @@
 # - open failure: prints to stderr, does not touch the registry, exits non-zero
 # - missing focused-pane cwd: fails before ever invoking `herdr plugin pane open`
 # - HERDR_BIN_PATH fallback: falls back to a `herdr` found on PATH when the env var is unset
+#
+# Directory-scoping (opt-in via scope = "directory" in $HERDR_PLUGIN_CONFIG_DIR/config.toml):
+# - defaults to workspace scope when HERDR_PLUGIN_CONFIG_DIR is unset
+# - defaults to workspace scope when config.toml is missing
+# - defaults to workspace scope when config.toml has no scope key
+# - explicit scope = "workspace" keeps workspace scoping
+# - registers the popup under directory:<cwd>:<entrypoint> when scope = "directory"
+# - two different cwds get independent registry entries and popups
+# - the same cwd is shared across different workspaces
+# - missing focused-pane cwd fails before ever invoking `herdr plugin pane open`
+
+_write_scope_config() {
+  mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
+  printf 'scope = "%s"\n' "$1" > "$HERDR_PLUGIN_CONFIG_DIR/config.toml"
+}
 
 setup() {
   TOGGLE_SH="$BATS_TEST_DIRNAME/../toggle.sh"
   export HERDR_PLUGIN_STATE_DIR="$BATS_TEST_TMPDIR/plugin-state"
+  export HERDR_PLUGIN_CONFIG_DIR="$BATS_TEST_TMPDIR/plugin-config"
   export HERDR_WORKSPACE_ID="ws1"
   export HERDR_PLUGIN_CONTEXT_JSON='{"workspace_id":"ws1","focused_pane_id":"ws1:p1","focused_pane_cwd":"/focused/cwd"}'
   POPUPS_FILE="$HERDR_PLUGIN_STATE_DIR/popups.json"
@@ -150,4 +166,112 @@ STUB
   run state_get "workspace:ws1:shell"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r .pane_id)" = "pane-on-path" ]
+}
+
+@test "defaults to workspace scope when HERDR_PLUGIN_CONFIG_DIR is unset" {
+  unset HERDR_PLUGIN_CONFIG_DIR
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+}
+
+@test "defaults to workspace scope when config.toml is missing" {
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+}
+
+@test "defaults to workspace scope when config.toml has no scope key" {
+  mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
+  printf 'other = "value"\n' > "$HERDR_PLUGIN_CONFIG_DIR/config.toml"
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+}
+
+@test "explicit scope = \"workspace\" keeps workspace scoping" {
+  _write_scope_config "workspace"
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+}
+
+@test "directory scope: registers the popup under directory:<cwd>:<entrypoint>" {
+  _write_scope_config "directory"
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "directory:/focused/cwd:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .scope)" = "directory" ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 1 ]
+}
+
+@test "directory scope: two different cwds get independent registry entries and popups" {
+  _write_scope_config "directory"
+
+  export HERDR_PLUGIN_CONTEXT_JSON='{"workspace_id":"ws1","focused_pane_cwd":"/dir/a"}'
+  export STUB_HERDR_OPEN_PANE_ID="pane-a"
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  export HERDR_PLUGIN_CONTEXT_JSON='{"workspace_id":"ws1","focused_pane_cwd":"/dir/b"}'
+  export STUB_HERDR_OPEN_PANE_ID="pane-b"
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "directory:/dir/a:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-a" ]
+
+  run state_get "directory:/dir/b:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-b" ]
+}
+
+@test "directory scope: the same cwd is shared across different workspaces" {
+  _write_scope_config "directory"
+
+  export HERDR_WORKSPACE_ID="ws1"
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "directory:/focused/cwd:shell"
+  [ "$status" -eq 0 ]
+  stored_pane_id="$(echo "$output" | jq -r .pane_id)"
+
+  export HERDR_WORKSPACE_ID="ws2"
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  grep -q "^plugin pane close $stored_pane_id\$" "$STUB_HERDR_LOG"
+
+  run state_get "directory:/focused/cwd:shell"
+  [ "$status" -eq 1 ]
+}
+
+@test "directory scope: missing focused-pane cwd fails before ever invoking herdr open" {
+  _write_scope_config "directory"
+  export HERDR_PLUGIN_CONTEXT_JSON='{"workspace_id":"ws1"}'
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -ne 0 ]
+  [ -n "$output" ]
+
+  [ ! -e "$POPUPS_FILE" ]
+  ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
 }
