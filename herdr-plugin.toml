@@ -15,3 +15,7 @@ id = "shell"
 title = "Popup Shell"
 placement = "overlay"
 command = ["bash", "popup-shell.sh"]
+
+[[events]]
+on = "pane.closed"
+command = ["bash", "on-pane-closed.sh"]
