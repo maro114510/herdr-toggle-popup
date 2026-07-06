@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # toggle.sh — popup toggle: close-on-second-press, opens at the focused pane's cwd.
 # A second argument selects how another entrypoint's already-open popup is treated (default: switch).
-# Scoped by workspace by default; set scope = "directory" in $HERDR_PLUGIN_CONFIG_DIR/config.toml
-# to share popups by the focused pane's cwd instead, across workspaces.
+# Scoped by workspace by default; set scope = "directory" in $HERDR_PLUGIN_CONFIG_DIR/config.toml to share popups by the focused pane's cwd instead, across workspaces.
+# Set popup_size.<entrypoint> in the same file to resize a newly opened popup toward an approximate target size; see README for the format and its limitations.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -39,8 +39,46 @@ _toggle_scope_mode() {
 
 scope_mode="$(_toggle_scope_mode)"
 
-# $key_prefix is the namespace force-close operates within: other entrypoints sharing the
-# same prefix are treated as "already open in this context" and closed alongside toggling.
+# Reads the opt-in `popup_size.<entrypoint>` key from $HERDR_PLUGIN_CONFIG_DIR/config.toml: a space-separated list of "direction:amount:count" steps run against a newly opened popup to approximate a target size.
+# Herdr's pane.resize is relative-only (no absolute-size query), so this is a best-effort approximation, not an exact match — see README.
+# Prints nothing when the directory, file, or key is absent.
+_toggle_size_steps() {
+  local config_file key value
+  [ -n "${HERDR_PLUGIN_CONFIG_DIR:-}" ] || return 0
+  config_file="${HERDR_PLUGIN_CONFIG_DIR}/config.toml"
+  [ -f "${config_file}" ] || return 0
+  while IFS='=' read -r key value; do
+    key="$(printf '%s' "${key}" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+    [ "${key}" = "popup_size.${entrypoint}" ] || continue
+    value="$(printf '%s' "${value}" | sed -nE 's/^[[:space:]]*"([^"]*)"[[:space:]]*$/\1/p')"
+    [ -n "${value}" ] && printf '%s' "${value}" && return 0
+  done < "${config_file}"
+}
+
+# Best-effort: runs the configured direction:amount:count steps against the newly opened pane.
+# Malformed steps are skipped individually; resize failures are ignored — the popup is already open and registered, so sizing is cosmetic and must never fail the toggle.
+_toggle_apply_size() {
+  local pane_id="${1}" steps step direction amount count i
+  steps="$(_toggle_size_steps)"
+  [ -n "${steps}" ] || return 0
+
+  local -a step_list
+  read -r -a step_list <<<"${steps}"
+  for step in "${step_list[@]}"; do
+    IFS=':' read -r direction amount count <<<"${step}"
+    case "${direction}" in
+      left | right | up | down) ;;
+      *) continue ;;
+    esac
+    [[ "${amount}" =~ ^[0-9]+(\.[0-9]+)?$ ]] || continue
+    [[ "${count}" =~ ^[1-9][0-9]*$ ]] || continue
+    for ((i = 0; i < count; i++)); do
+      "${herdr_bin}" pane resize --direction "${direction}" --amount "${amount}" --pane "${pane_id}" >/dev/null 2>&1 || true
+    done
+  done
+}
+
+# $key_prefix is the namespace force-close operates within: other entrypoints sharing the same prefix are treated as "already open in this context" and closed alongside toggling.
 if [ "${scope_mode}" = "directory" ]; then
   cwd="$(context_field focused_pane_cwd)"
   if [ -z "${cwd}" ]; then
@@ -58,8 +96,7 @@ key="${key_prefix}${entrypoint}"
 _toggle_open() {
   local cwd open_output pane_id
 
-  # Herdr's overlay panes always target the active pane, so the focused pane's cwd
-  # is what the popup should open at.
+  # Herdr's overlay panes always target the active pane, so the focused pane's cwd is what the popup should open at.
   cwd="$(context_field focused_pane_cwd)"
   if [ -z "${cwd}" ]; then
     printf 'toggle.sh: could not determine the focused pane'\''s cwd\n' >&2
@@ -83,11 +120,10 @@ _toggle_open() {
   fi
 
   state_set "${key}" "${pane_id}" "${PLUGIN_ID}" "${entrypoint}" "${scope_mode}" "${workspace_id}" "" "$(($(date +%s) * 1000))"
+  _toggle_apply_size "${pane_id}"
 }
 
-# force-close mode: closes every other entrypoint's popup registered under the same
-# scope prefix (workspace, or directory when scope = "directory"), clearing its registry
-# entry regardless of whether the close call succeeds.
+# force-close mode: closes every other entrypoint's popup registered under the same scope prefix (workspace, or directory when scope = "directory"), clearing its registry entry regardless of whether the close call succeeds.
 _toggle_close_other_popups() {
   local registry other_key other_pane_id
   registry="$(state_read)"

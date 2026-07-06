@@ -32,10 +32,27 @@
 #   stacks it: both registry entries exist afterward
 # - closing the inner (second) popup afterward removes only its own registry entry, leaves
 #   the outer popup's entry untouched, and never calls `herdr plugin pane close` on the outer pane
+#
+# Configurable popup size, opt-in via popup_size.<entrypoint> in $HERDR_PLUGIN_CONFIG_DIR/config.toml:
+# - no popup_size entry for the entrypoint: opens exactly as it does today, without issuing any
+#   `pane resize` calls
+# - configured entrypoint: issues the configured direction/amount sequence, each amount repeated
+#   its configured count, in order, against the newly opened pane
+# - a config entry for a different entrypoint is not applied
+# - an invalid direction, a non-numeric amount, or a non-positive count skips only that step;
+#   other valid steps in the same value still run
+# - a `pane resize` failure does not fail toggle.sh or touch the registry
+# - resize is never attempted when opening fails
+# - toggling an already-open popup closed never attempts a resize call
 
 _write_scope_config() {
   mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
   printf 'scope = "%s"\n' "$1" > "$HERDR_PLUGIN_CONFIG_DIR/config.toml"
+}
+
+_write_size_config() {
+  mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
+  printf 'popup_size.%s = "%s"\n' "$1" "$2" > "$HERDR_PLUGIN_CONFIG_DIR/config.toml"
 }
 
 setup() {
@@ -75,6 +92,15 @@ case "$1 $2 $3" in
       printf '{"id":"cli:plugin","result":{"type":"plugin_pane_closed"}}\n'
     else
       printf '{"error":{"code":"plugin_pane_not_found","message":"plugin pane not found"},"id":"cli:plugin"}\n' >&2
+    fi
+    exit "$exit_code"
+    ;;
+  "pane resize --direction")
+    exit_code="${STUB_HERDR_RESIZE_EXIT:-0}"
+    if [ "$exit_code" -eq 0 ]; then
+      printf '{"id":"cli:pane:resize","result":{"type":"pane_resized"}}\n'
+    else
+      printf '{"error":{"code":"pane_not_found","message":"stub resize failure"},"id":"cli:pane:resize"}\n' >&2
     fi
     exit "$exit_code"
     ;;
@@ -461,4 +487,79 @@ STUB
 
   grep -q "^plugin pane close pane-a$" "$STUB_HERDR_LOG"
   ! grep -q "^plugin pane close pane-other-dir$" "$STUB_HERDR_LOG"
+}
+
+@test "popup size: no popup_size entry issues no pane resize calls" {
+  export STUB_HERDR_OPEN_PANE_ID="pane-42"
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  ! grep -q "^pane resize" "$STUB_HERDR_LOG"
+}
+
+@test "popup size: runs the configured direction/amount sequence against the newly opened pane" {
+  _write_size_config "shell" "right:0.5:2 down:0.25:1"
+  export STUB_HERDR_OPEN_PANE_ID="pane-42"
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  resize_calls="$(grep "^pane resize" "$STUB_HERDR_LOG")"
+  expected="$(printf 'pane resize --direction right --amount 0.5 --pane pane-42\npane resize --direction right --amount 0.5 --pane pane-42\npane resize --direction down --amount 0.25 --pane pane-42')"
+  [ "$resize_calls" = "$expected" ]
+}
+
+@test "popup size: a config entry for a different entrypoint is not applied" {
+  _write_size_config "git" "right:0.5:2"
+  export STUB_HERDR_OPEN_PANE_ID="pane-42"
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  ! grep -q "^pane resize" "$STUB_HERDR_LOG"
+}
+
+@test "popup size: a malformed step is skipped, other valid steps in the same value still run" {
+  _write_size_config "shell" "sideways:0.5:2 right:notanumber:2 down:0.5:0 up:0.5:1"
+  export STUB_HERDR_OPEN_PANE_ID="pane-42"
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  resize_calls="$(grep "^pane resize" "$STUB_HERDR_LOG")"
+  [ "$resize_calls" = "pane resize --direction up --amount 0.5 --pane pane-42" ]
+}
+
+@test "popup size: a pane resize failure does not fail toggle.sh or touch the registry" {
+  _write_size_config "shell" "right:0.5:1"
+  export STUB_HERDR_OPEN_PANE_ID="pane-42"
+  export STUB_HERDR_RESIZE_EXIT=1
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-42" ]
+}
+
+@test "popup size: resize is never attempted when opening fails" {
+  _write_size_config "shell" "right:0.5:1"
+  export STUB_HERDR_OPEN_EXIT=1
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -ne 0 ]
+
+  ! grep -q "^pane resize" "$STUB_HERDR_LOG"
+}
+
+@test "popup size: resize is never attempted on the close path" {
+  _write_size_config "shell" "right:0.5:1"
+  state_set "workspace:ws1:shell" "pane-existing" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+
+  run bash "$TOGGLE_SH" shell
+  [ "$status" -eq 0 ]
+
+  ! grep -q "^pane resize" "$STUB_HERDR_LOG"
 }
