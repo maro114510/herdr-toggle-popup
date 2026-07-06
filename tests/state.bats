@@ -16,12 +16,12 @@ setup() {
 }
 
 @test "state_set then state_get round-trips an entry" {
-  state_set "workspace:ws1:shell" "pane-1" "nohira.toggle-popup" "shell" "workspace" "ws1" "" 1720000000000
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1720000000000
 
   run state_get "workspace:ws1:shell"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r .pane_id)" = "pane-1" ]
-  [ "$(echo "$output" | jq -r .plugin_id)" = "nohira.toggle-popup" ]
+  [ "$(echo "$output" | jq -r .plugin_id)" = "maro114510.toggle-popup" ]
   [ "$(echo "$output" | jq -r .entrypoint)" = "shell" ]
   [ "$(echo "$output" | jq -r .scope)" = "workspace" ]
   [ "$(echo "$output" | jq -r .workspace_id)" = "ws1" ]
@@ -36,8 +36,8 @@ setup() {
 }
 
 @test "state_set preserves other existing entries" {
-  state_set "workspace:ws1:shell" "pane-1" "nohira.toggle-popup" "shell" "workspace" "ws1" "" 1
-  state_set "workspace:ws2:shell" "pane-2" "nohira.toggle-popup" "shell" "workspace" "ws2" "" 2
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws2:shell" "pane-2" "maro114510.toggle-popup" "shell" "workspace" "ws2" "" 2
 
   run state_get "workspace:ws1:shell"
   [ "$(echo "$output" | jq -r .pane_id)" = "pane-1" ]
@@ -47,7 +47,7 @@ setup() {
 }
 
 @test "state_delete removes an entry so state_get subsequently fails" {
-  state_set "workspace:ws1:shell" "pane-1" "nohira.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
   state_delete "workspace:ws1:shell"
 
   run state_get "workspace:ws1:shell"
@@ -60,7 +60,7 @@ setup() {
 }
 
 @test "the registry written to disk matches the documented schema" {
-  state_set "workspace:ws1:shell" "pane-1" "nohira.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
 
   run jq -e '
     .version == 1
@@ -73,7 +73,7 @@ setup() {
 
 @test "state_set creates the state directory when missing" {
   [ ! -d "$HERDR_PLUGIN_STATE_DIR" ]
-  state_set "workspace:ws1:shell" "pane-1" "nohira.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
   [ -f "$POPUPS_FILE" ]
 }
 

@@ -14,7 +14,7 @@ block() { # $1=file $2=table header, e.g. "[[actions]]"
 }
 
 @test "manifest declares plugin id, version and min_herdr_version" {
-  grep -qE '^id = "nohira\.toggle-popup"$' "$MANIFEST"
+  grep -qE '^id = "maro114510\.toggle-popup"$' "$MANIFEST"
   grep -qE '^min_herdr_version = "0\.7\.0"$' "$MANIFEST"
 }
 
@@ -45,5 +45,5 @@ block() { # $1=file $2=table header, e.g. "[[actions]]"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qE '^key = "alt\+l"$'
   echo "$output" | grep -qE '^type = "plugin_action"$'
-  echo "$output" | grep -qE '^command = "nohira\.toggle-popup\.toggle-shell"$'
+  echo "$output" | grep -qE '^command = "maro114510\.toggle-popup\.toggle-shell"$'
 }

@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=./state.sh
 source "${SCRIPT_DIR}/state.sh"
 
-PLUGIN_ID="nohira.toggle-popup"
+PLUGIN_ID="maro114510.toggle-popup"
 
 entrypoint="${1:?usage: toggle.sh <entrypoint>}"
 herdr_bin="${HERDR_BIN_PATH:-herdr}"
