@@ -1,0 +1,18 @@
+# Copyright (c) Nohira Atsuki. All rights reserved.
+
+# Environments
+.env
+
+### others ###
+# *.jpg
+# *.png
+# *.mp4
+# *.json
+
+
+### macOS ###
+# General
+.DS_Store
+
+
+# End Of Ignore
