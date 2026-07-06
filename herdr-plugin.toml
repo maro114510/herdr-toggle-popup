@@ -1,0 +1,17 @@
+id = "nohira.toggle-popup"
+name = "Toggle Popup"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "toggle-shell"
+title = "Toggle popup shell"
+contexts = ["workspace", "tab", "pane"]
+command = ["bash", "toggle.sh", "shell"]
+
+[[panes]]
+id = "shell"
+title = "Popup Shell"
+placement = "overlay"
+command = ["bash", "popup-shell.sh"]
