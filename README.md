@@ -27,3 +27,7 @@ type = "plugin_action"
 command = "nohira.toggle-popup.toggle-shell"
 description = "Toggle popup shell"
 ```
+
+## License
+
+[Apache License 2.0](./LICENSE)
