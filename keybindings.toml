@@ -1,0 +1,8 @@
+# Herdr does not auto-load plugin-shipped keybindings. Copy this block into
+# your own ~/.config/herdr/config.toml to bind alt+l to the toggle action.
+
+[[keys.command]]
+key = "alt+l"
+type = "plugin_action"
+command = "nohira.toggle-popup.toggle-shell"
+description = "Toggle popup shell"
