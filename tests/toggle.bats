@@ -9,6 +9,12 @@
 # - open failure: prints to stderr, does not touch the registry, exits non-zero
 # - missing focused-pane cwd: fails before ever invoking `herdr plugin pane open`
 # - HERDR_BIN_PATH fallback: falls back to a `herdr` found on PATH when the env var is unset
+# - mode=switch (default): another open entrypoint's popup is left untouched
+# - mode=force-close: closes other open entrypoints' popups (same scope only) before opening
+# - mode=force-close: still opens the requested popup even if closing the other one fails
+# - mode=force-open: another open entrypoint's popup is left untouched
+# - same-entrypoint toggle still closes regardless of mode
+# - unknown mode: rejected before touching the registry or calling herdr
 #
 # Directory-scoping (opt-in via scope = "directory" in $HERDR_PLUGIN_CONFIG_DIR/config.toml):
 # - defaults to workspace scope when HERDR_PLUGIN_CONFIG_DIR is unset
@@ -19,6 +25,7 @@
 # - two different cwds get independent registry entries and popups
 # - the same cwd is shared across different workspaces
 # - missing focused-pane cwd fails before ever invoking `herdr plugin pane open`
+# - mode=force-close scopes to the current directory (not workspace) when scope = "directory"
 
 _write_scope_config() {
   mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
@@ -168,6 +175,110 @@ STUB
   [ "$(echo "$output" | jq -r .pane_id)" = "pane-on-path" ]
 }
 
+@test "mode=switch (default) leaves another open entrypoint's popup untouched" {
+  state_set "workspace:ws1:shell" "pane-a" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  export STUB_HERDR_OPEN_PANE_ID="pane-b"
+
+  run bash "$TOGGLE_SH" git
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-a" ]
+
+  run state_get "workspace:ws1:git"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-b" ]
+
+  ! grep -q "^plugin pane close" "$STUB_HERDR_LOG"
+}
+
+@test "mode=force-close closes another open entrypoint's popup before opening the requested one" {
+  state_set "workspace:ws1:shell" "pane-a" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  export STUB_HERDR_OPEN_PANE_ID="pane-b"
+
+  run bash "$TOGGLE_SH" git force-close
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 1 ]
+
+  run state_get "workspace:ws1:git"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-b" ]
+
+  grep -q "^plugin pane close pane-a$" "$STUB_HERDR_LOG"
+}
+
+@test "mode=force-close still opens the requested popup even if closing the other one fails" {
+  state_set "workspace:ws1:shell" "pane-a" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  export STUB_HERDR_CLOSE_EXIT=1
+  export STUB_HERDR_OPEN_PANE_ID="pane-b"
+
+  run bash "$TOGGLE_SH" git force-close
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 1 ]
+
+  run state_get "workspace:ws1:git"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-b" ]
+}
+
+@test "mode=force-close only closes popups in the same workspace" {
+  state_set "workspace:ws1:shell" "pane-a" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws2:shell" "pane-other-ws" "maro114510.toggle-popup" "shell" "workspace" "ws2" "" 1
+  export STUB_HERDR_OPEN_PANE_ID="pane-b"
+
+  run bash "$TOGGLE_SH" git force-close
+  [ "$status" -eq 0 ]
+
+  ! grep -q "^plugin pane close pane-other-ws$" "$STUB_HERDR_LOG"
+  run state_get "workspace:ws2:shell"
+  [ "$status" -eq 0 ]
+}
+
+@test "mode=force-open leaves another open entrypoint's popup untouched" {
+  state_set "workspace:ws1:shell" "pane-a" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  export STUB_HERDR_OPEN_PANE_ID="pane-b"
+
+  run bash "$TOGGLE_SH" git force-open
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-a" ]
+
+  run state_get "workspace:ws1:git"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-b" ]
+
+  ! grep -q "^plugin pane close" "$STUB_HERDR_LOG"
+}
+
+@test "toggling the same entrypoint still closes it regardless of mode" {
+  state_set "workspace:ws1:shell" "pane-existing" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+
+  run bash "$TOGGLE_SH" shell force-close
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 1 ]
+
+  grep -q "^plugin pane close pane-existing$" "$STUB_HERDR_LOG"
+  ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
+}
+
+@test "rejects an unknown mode without touching the registry or calling herdr" {
+  run bash "$TOGGLE_SH" shell bogus-mode
+  [ "$status" -ne 0 ]
+  [ -n "$output" ]
+
+  [ ! -e "$POPUPS_FILE" ]
+  [ ! -s "$STUB_HERDR_LOG" ]
+}
+
 @test "defaults to workspace scope when HERDR_PLUGIN_CONFIG_DIR is unset" {
   unset HERDR_PLUGIN_CONFIG_DIR
 
@@ -274,4 +385,23 @@ STUB
 
   [ ! -e "$POPUPS_FILE" ]
   ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
+}
+
+@test "mode=force-close scopes to the current directory, not the workspace, when scope = directory" {
+  _write_scope_config "directory"
+  state_set "directory:/focused/cwd:shell" "pane-a" "maro114510.toggle-popup" "shell" "directory" "ws1" "" 1
+  state_set "directory:/other/cwd:shell" "pane-other-dir" "maro114510.toggle-popup" "shell" "directory" "ws1" "" 1
+  export STUB_HERDR_OPEN_PANE_ID="pane-b"
+
+  run bash "$TOGGLE_SH" git force-close
+  [ "$status" -eq 0 ]
+
+  run state_get "directory:/focused/cwd:shell"
+  [ "$status" -eq 1 ]
+
+  run state_get "directory:/other/cwd:shell"
+  [ "$status" -eq 0 ]
+
+  grep -q "^plugin pane close pane-a$" "$STUB_HERDR_LOG"
+  ! grep -q "^plugin pane close pane-other-dir$" "$STUB_HERDR_LOG"
 }
