@@ -34,7 +34,7 @@ case "$1 $2 $3" in
     exit_code="${STUB_HERDR_OPEN_EXIT:-0}"
     if [ "$exit_code" -eq 0 ]; then
       pane_id="${STUB_HERDR_OPEN_PANE_ID:-new-pane-1}"
-      printf '{"id":"cli:plugin","result":{"plugin_pane":{"entrypoint":"shell","pane":{"pane_id":"%s","workspace_id":"ws1"},"plugin_id":"nohira.toggle-popup"},"type":"plugin_pane_opened"}}\n' "$pane_id"
+      printf '{"id":"cli:plugin","result":{"plugin_pane":{"entrypoint":"shell","pane":{"pane_id":"%s","workspace_id":"ws1"},"plugin_id":"maro114510.toggle-popup"},"type":"plugin_pane_opened"}}\n' "$pane_id"
     else
       printf '{"error":{"code":"invalid_params","message":"stub open failure"},"id":"cli:plugin"}\n' >&2
     fi
@@ -68,7 +68,7 @@ STUB
   run state_get "workspace:ws1:shell"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | jq -r .pane_id)" = "pane-42" ]
-  [ "$(echo "$output" | jq -r .plugin_id)" = "nohira.toggle-popup" ]
+  [ "$(echo "$output" | jq -r .plugin_id)" = "maro114510.toggle-popup" ]
   [ "$(echo "$output" | jq -r .entrypoint)" = "shell" ]
   [ "$(echo "$output" | jq -r .scope)" = "workspace" ]
   [ "$(echo "$output" | jq -r .workspace_id)" = "ws1" ]
@@ -81,7 +81,7 @@ STUB
   [ "$status" -eq 0 ]
 
   open_call="$(grep '^plugin pane open' "$STUB_HERDR_LOG")"
-  [[ "$open_call" == *"--plugin nohira.toggle-popup"* ]]
+  [[ "$open_call" == *"--plugin maro114510.toggle-popup"* ]]
   [[ "$open_call" == *"--entrypoint shell"* ]]
   [[ "$open_call" == *"--placement overlay"* ]]
   [[ "$open_call" == *"--cwd /focused/cwd"* ]]
@@ -91,7 +91,7 @@ STUB
 }
 
 @test "closes and clears the registry when a popup is already open" {
-  state_set "workspace:ws1:shell" "pane-existing" "nohira.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws1:shell" "pane-existing" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
 
   run bash "$TOGGLE_SH" shell
   [ "$status" -eq 0 ]
@@ -104,7 +104,7 @@ STUB
 }
 
 @test "a close failure clears the stale entry and opens a fresh popup" {
-  state_set "workspace:ws1:shell" "pane-stale" "nohira.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws1:shell" "pane-stale" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
   export STUB_HERDR_CLOSE_EXIT=1
   export STUB_HERDR_OPEN_PANE_ID="pane-fresh"
 

@@ -24,6 +24,6 @@ Herdr does not auto-load plugin-shipped keybindings. Copy the block from
 [[keys.command]]
 key = "alt+l"
 type = "plugin_action"
-command = "nohira.toggle-popup.toggle-shell"
+command = "maro114510.toggle-popup.toggle-shell"
 description = "Toggle popup shell"
 ```
