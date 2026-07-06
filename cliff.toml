@@ -1,0 +1,43 @@
+# git-cliff configuration for SemVer release bumps.
+# Tags use a leading "v" (for example, v0.2.0), while the manifest version does not.
+
+[changelog]
+body = """
+{% if version %}\
+## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking %}**breaking:** {% endif %}{{ commit.message | upper_first }}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = true
+initial_tag = "v0.1.0"
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+tag_pattern = "v[0-9]*"
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Fixes" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactoring" },
+    { message = "^revert", group = "Reverts" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^ci", group = "CI" },
+    { message = "^test", group = "Tests" },
+    { message = "^chore", group = "Chores" },
+]
+filter_commits = false
+fail_on_unmatched_commit = false
+sort_commits = "oldest"

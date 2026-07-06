@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Verify tag matches manifest version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          VERSION="${TAG_NAME#v}"
+          MANIFEST_VERSION="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' herdr-plugin.toml | head -n 1)"
+          test "${MANIFEST_VERSION}" = "${VERSION}" || { echo "herdr-plugin.toml has version ${MANIFEST_VERSION}, expected ${VERSION}"; exit 1; }
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release create "${TAG_NAME}" --title "${TAG_NAME}" --generate-notes --verify-tag
