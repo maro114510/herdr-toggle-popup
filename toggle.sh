@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # toggle.sh — workspace-scoped popup toggle: close-on-second-press, opens at the focused pane's cwd.
+# A second argument selects how another entrypoint's already-open popup is treated (default: switch).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,9 +9,18 @@ source "${SCRIPT_DIR}/state.sh"
 
 PLUGIN_ID="maro114510.toggle-popup"
 
-entrypoint="${1:?usage: toggle.sh <entrypoint>}"
+entrypoint="${1:?usage: toggle.sh <entrypoint> [switch|force-close|force-open]}"
+mode="${2:-switch}"
 herdr_bin="${HERDR_BIN_PATH:-herdr}"
 workspace_id="${HERDR_WORKSPACE_ID:?HERDR_WORKSPACE_ID must be set}"
+
+case "${mode}" in
+  switch | force-close | force-open) ;;
+  *)
+    printf 'toggle.sh: invalid mode: %s (expected switch, force-close, or force-open)\n' "${mode}" >&2
+    exit 1
+    ;;
+esac
 
 key="workspace:${workspace_id}:${entrypoint}"
 
@@ -50,6 +60,19 @@ _toggle_open() {
   state_set "${key}" "${pane_id}" "${PLUGIN_ID}" "${entrypoint}" "workspace" "${workspace_id}" "" "$(($(date +%s) * 1000))"
 }
 
+# force-close mode: closes every other entrypoint's popup registered in this workspace,
+# clearing its registry entry regardless of whether the close call succeeds.
+_toggle_close_other_popups() {
+  local registry other_key other_pane_id
+  registry="$(state_read)"
+  while IFS=$'\t' read -r other_key other_pane_id; do
+    [ -z "${other_key}" ] && continue
+    "${herdr_bin}" plugin pane close "${other_pane_id}" >/dev/null 2>&1 || true
+    state_delete "${other_key}"
+  done < <(printf '%s' "${registry}" | jq -r --arg prefix "workspace:${workspace_id}:" --arg exclude "${key}" \
+    '.popups | to_entries[] | select(.key | startswith($prefix)) | select(.key != $exclude) | "\(.key)\t\(.value.pane_id)"')
+}
+
 entry="$(state_get "${key}" 2>/dev/null || true)"
 if [ -n "${entry}" ]; then
   stored_pane_id="$(printf '%s' "${entry}" | jq -r '.pane_id? // empty' 2>/dev/null || true)"
@@ -58,6 +81,10 @@ if [ -n "${entry}" ]; then
     exit 0
   fi
   state_delete "${key}"
+fi
+
+if [ "${mode}" = "force-close" ]; then
+  _toggle_close_other_popups
 fi
 
 _toggle_open
