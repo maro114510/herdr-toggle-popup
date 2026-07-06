@@ -26,6 +26,12 @@
 # - the same cwd is shared across different workspaces
 # - missing focused-pane cwd fails before ever invoking `herdr plugin pane open`
 # - mode=force-close scopes to the current directory (not workspace) when scope = "directory"
+#
+# Nested/stacked popups (issue #19):
+# - opening a second entrypoint's popup with mode=force-open while the first is still open
+#   stacks it: both registry entries exist afterward
+# - closing the inner (second) popup afterward removes only its own registry entry, leaves
+#   the outer popup's entry untouched, and never calls `herdr plugin pane close` on the outer pane
 
 _write_scope_config() {
   mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
@@ -385,6 +391,57 @@ STUB
 
   [ ! -e "$POPUPS_FILE" ]
   ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
+}
+
+@test "nested popups: opening a second entrypoint with force-open stacks it without closing the first" {
+  export STUB_HERDR_OPEN_PANE_ID="pane-outer"
+  run bash "$TOGGLE_SH" shell force-open
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-outer" ]
+
+  export STUB_HERDR_OPEN_PANE_ID="pane-inner"
+  run bash "$TOGGLE_SH" git force-open
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-outer" ]
+
+  run state_get "workspace:ws1:git"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-inner" ]
+
+  ! grep -q "^plugin pane close" "$STUB_HERDR_LOG"
+}
+
+@test "nested popups: closing the inner popup leaves the outer popup's registry entry and pane untouched" {
+  export STUB_HERDR_OPEN_PANE_ID="pane-outer"
+  run bash "$TOGGLE_SH" shell force-open
+  [ "$status" -eq 0 ]
+
+  export STUB_HERDR_OPEN_PANE_ID="pane-inner"
+  run bash "$TOGGLE_SH" git force-open
+  [ "$status" -eq 0 ]
+
+  run bash "$TOGGLE_SH" git force-open
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:git"
+  [ "$status" -eq 1 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-outer" ]
+
+  grep -q "^plugin pane close pane-inner$" "$STUB_HERDR_LOG"
+  ! grep -q "^plugin pane close pane-outer$" "$STUB_HERDR_LOG"
+
+  calls="$(cut -d' ' -f1-3 "$STUB_HERDR_LOG")"
+  expected="$(printf 'plugin pane open\nplugin pane open\nplugin pane close\n')"
+  [ "$calls" = "$expected" ]
 }
 
 @test "mode=force-close scopes to the current directory, not the workspace, when scope = directory" {
