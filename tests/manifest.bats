@@ -40,6 +40,13 @@ block() { # $1=file $2=table header, e.g. "[[actions]]"
   echo "$output" | grep -qE '^command = \["bash", "popup-shell\.sh"\]$'
 }
 
+@test "manifest declares the pane.closed event hook" {
+  run block "$MANIFEST" "[[events]]"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qE '^on = "pane\.closed"$'
+  echo "$output" | grep -qE '^command = \["bash", "on-pane-closed\.sh"\]$'
+}
+
 @test "keybindings.toml declares the alt+l plugin_action binding" {
   run block "$KEYBINDINGS" "[[keys.command]]"
   [ "$status" -eq 0 ]

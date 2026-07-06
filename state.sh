@@ -109,3 +109,12 @@ state_delete() {
   updated="$(printf '%s' "${registry}" | jq -c --arg k "${key}" 'del(.popups[$k])')"
   state_write_registry "${updated}"
 }
+
+# Removes every entry whose pane_id matches, regardless of key. Idempotent.
+state_delete_by_pane_id() {
+  local pane_id="${1}" registry updated
+  registry="$(state_read)"
+  updated="$(printf '%s' "${registry}" | jq -c --arg pane_id "${pane_id}" \
+    '.popups |= with_entries(select(.value.pane_id != $pane_id))')"
+  state_write_registry "${updated}"
+}

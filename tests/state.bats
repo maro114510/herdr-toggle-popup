@@ -128,3 +128,35 @@ STUB
   [ "$status" -eq 0 ]
   [ "$output" = '{"version":1,"popups":{}}' ]
 }
+
+@test "state_delete_by_pane_id removes the entry with a matching pane_id" {
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_delete_by_pane_id "pane-1"
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 1 ]
+}
+
+@test "state_delete_by_pane_id leaves entries with a different pane_id untouched" {
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set "workspace:ws2:shell" "pane-2" "maro114510.toggle-popup" "shell" "workspace" "ws2" "" 2
+  state_delete_by_pane_id "pane-1"
+
+  run state_get "workspace:ws2:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-2" ]
+}
+
+@test "state_delete_by_pane_id on a pane_id that matches nothing does not error" {
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  run state_delete_by_pane_id "pane-missing"
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+}
+
+@test "state_delete_by_pane_id on an empty registry does not error" {
+  run state_delete_by_pane_id "pane-1"
+  [ "$status" -eq 0 ]
+}
