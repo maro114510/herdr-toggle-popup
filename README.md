@@ -28,6 +28,22 @@ command = "maro114510.toggle-popup.toggle-shell"
 description = "Toggle popup shell"
 ```
 
+## Directory-scoped popups
+
+By default, a popup is tracked per workspace: toggling the same entrypoint
+from two workspaces opens two independent popups. To instead share a popup
+by the focused pane's working directory across workspaces, run
+`herdr plugin config-dir maro114510.toggle-popup` to find the plugin's
+config directory, then add a `config.toml` there:
+
+```toml
+scope = "directory"
+```
+
+With this set, toggling the same entrypoint from the same directory in any
+workspace opens or closes the same popup; toggling it from a different
+directory opens a separate one.
+
 ## License
 
 [Apache License 2.0](./LICENSE)
