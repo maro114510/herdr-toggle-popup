@@ -14,7 +14,7 @@ command = ["bash", "toggle.sh", "shell"]
 id = "shell"
 title = "Popup Shell"
 placement = "overlay"
-command = ["bash", "popup-shell.sh"]
+command = ["bash", "-c", "exec \"$HERDR_PLUGIN_ROOT/popup-shell.sh\""]
 
 [[events]]
 on = "pane.closed"

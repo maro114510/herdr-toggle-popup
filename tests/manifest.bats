@@ -37,7 +37,7 @@ block() { # $1=file $2=table header, e.g. "[[actions]]"
   echo "$output" | grep -qE '^id = "shell"$'
   echo "$output" | grep -qE '^title = "Popup Shell"$'
   echo "$output" | grep -qE '^placement = "overlay"$'
-  echo "$output" | grep -qE '^command = \["bash", "popup-shell\.sh"\]$'
+  echo "$output" | grep -qE '^command = \["bash", "-c", "exec \\"\$HERDR_PLUGIN_ROOT/popup-shell\.sh\\""\]$'
 }
 
 @test "manifest declares the pane.closed event hook" {
