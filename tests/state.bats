@@ -160,3 +160,40 @@ STUB
   run state_delete_by_pane_id "pane-1"
   [ "$status" -eq 0 ]
 }
+
+@test "state_set_hidden sets the hidden flag on an existing entry without touching other fields" {
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set_hidden "workspace:ws1:shell" true
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .hidden)" = "true" ]
+  [ "$(echo "$output" | jq -r .pane_id)" = "pane-1" ]
+  [ "$(echo "$output" | jq -r .scope)" = "workspace" ]
+}
+
+@test "state_set_hidden can flip an entry back to not hidden" {
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set_hidden "workspace:ws1:shell" true
+  state_set_hidden "workspace:ws1:shell" false
+
+  run state_get "workspace:ws1:shell"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | jq -r .hidden)" = "false" ]
+}
+
+@test "state_set_hidden on a nonexistent key does not error and does not create an entry" {
+  run state_set_hidden "workspace:missing:shell" true
+  [ "$status" -eq 0 ]
+
+  run state_get "workspace:missing:shell"
+  [ "$status" -eq 1 ]
+}
+
+@test "state_set_hidden writes a boolean, not a string" {
+  state_set "workspace:ws1:shell" "pane-1" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
+  state_set_hidden "workspace:ws1:shell" true
+
+  run state_get "workspace:ws1:shell"
+  [ "$(echo "$output" | jq -r '.hidden | type')" = "boolean" ]
+}

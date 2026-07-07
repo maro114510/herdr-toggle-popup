@@ -102,6 +102,17 @@ state_set() {
   state_write_registry "${updated}"
 }
 
+# Sets the hidden flag on an existing entry, leaving every other field untouched.
+# No-op (and no error) when the key is absent.
+state_set_hidden() {
+  local key="${1}" hidden="${2}" registry updated
+  registry="$(state_read)"
+  updated="$(printf '%s' "${registry}" | jq -c --arg k "${key}" --argjson hidden "${hidden}" \
+    'if .popups[$k] then .popups[$k].hidden = $hidden else . end')"
+  [ -n "${updated}" ] || return 1
+  state_write_registry "${updated}"
+}
+
 # Removes the entry for the given key, if present. Idempotent.
 state_delete() {
   local key="${1}" registry updated
