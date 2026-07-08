@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# toggle.sh — popup toggle: hide-on-second-press (the popup's process keeps running in a
-# background tab, so its shell session survives), opens at the focused pane's cwd.
+# toggle.sh — popup toggle: hide-on-second-press (the popup stays a floating overlay pane, hidden
+# behind a sibling pane rather than moved, so its shell session survives), opens at the focused
+# pane's cwd.
 # A second argument selects how another entrypoint's already-open popup is treated (default: switch).
 # Scoped by workspace by default; set scope = "directory" in $HERDR_PLUGIN_CONFIG_DIR/config.toml to share popups by the focused pane's cwd instead, across workspaces.
 # Set popup_size.<entrypoint> in the same file to resize a newly opened popup toward an approximate target size; see README for the format and its limitations.
@@ -136,31 +137,39 @@ _toggle_close_other_popups() {
     '.popups | to_entries[] | select(.key | startswith($prefix)) | select(.key != $exclude) | "\(.key)\t\(.value.pane_id)"')
 }
 
-# Hides an already-visible popup without terminating its process: un-zooms it (best-effort,
-# since the following move is what actually matters), then moves it into a fresh background tab
-# out of view. herdr's `pane move` can report success (exit 0) with changed:false instead of
-# failing outright (e.g. while the pane is still zoomed), so success is read from the response
-# body rather than the exit code alone.
-_toggle_hide() {
-  local pane_id="${1}" move_output
-  "${herdr_bin}" pane zoom "${pane_id}" --off >/dev/null 2>&1 || true
-  move_output="$("${herdr_bin}" pane move "${pane_id}" --new-tab --no-focus 2>/dev/null)" || return 1
-  [ "$(printf '%s' "${move_output}" | jq -r '.result.move_result.changed? // false' 2>/dev/null)" = "true" ]
+# Reports whether the given pane still exists. `herdr pane get` exits non-zero for an unknown pane,
+# which is how a stale registry entry (the pane closed out from under us) is detected.
+_toggle_pane_exists() {
+  "${herdr_bin}" pane get "${1}" >/dev/null 2>&1
 }
 
-# Re-shows a hidden popup over the currently focused pane: moves it back into the focused tab as
-# a split, then re-zooms it (best-effort — the pane is already visible once moved, so a failed
-# zoom is cosmetic, not a reason to give up and open a fresh popup on top of it).
-# Same changed-field caveat as _toggle_hide applies to the move call.
+# Prints a pane_id sharing the given pane's tab (any pane other than itself), or nothing when the
+# pane is the only one in its tab. Used to pick a pane to bring forward when hiding the popup.
+_toggle_tab_sibling() {
+  local pane_id="${1}" layout
+  layout="$("${herdr_bin}" pane layout --pane "${pane_id}" 2>/dev/null)" || return 0
+  printf '%s' "${layout}" | jq -r --arg self "${pane_id}" \
+    '.result.layout.panes[]? | select(.pane_id != $self) | .pane_id' 2>/dev/null | head -n1
+}
+
+# Hides an already-visible popup without moving it, so it stays a floating overlay pane. herdr's
+# `pane move` strips the overlay rendering and demotes the popup to an ordinary tab pane, so instead
+# we bring a sibling pane in the popup's own tab to the front with `pane zoom --on`, pushing the
+# overlay out of view while leaving it exactly where it is. The popup process keeps running.
+# Returns non-zero (without touching the popup) when it is alone in its tab and so has no sibling to
+# hide behind, or when the zoom call fails.
+_toggle_hide() {
+  local pane_id="${1}" sibling
+  sibling="$(_toggle_tab_sibling "${pane_id}")"
+  [ -n "${sibling}" ] || return 1
+  "${herdr_bin}" pane zoom "${sibling}" --on >/dev/null 2>&1
+}
+
+# Re-shows a hidden popup by re-focusing it in place. Because it was never moved, it is still a
+# floating overlay pane and herdr renders it as one again; `plugin pane focus` also brings it to the
+# front, so no separate zoom call is needed.
 _toggle_show() {
-  local pane_id="${1}" tab_id move_output
-  tab_id="$(context_field tab_id)"
-  [ -n "${tab_id}" ] || return 1
-
-  move_output="$("${herdr_bin}" pane move "${pane_id}" --tab "${tab_id}" --split right --focus 2>/dev/null)" || return 1
-  [ "$(printf '%s' "${move_output}" | jq -r '.result.move_result.changed? // false' 2>/dev/null)" = "true" ] || return 1
-
-  "${herdr_bin}" pane zoom "${pane_id}" --on >/dev/null 2>&1 || true
+  "${herdr_bin}" plugin pane focus "${1}" >/dev/null 2>&1
 }
 
 entry="$(state_get "${key}" 2>/dev/null || true)"
@@ -168,17 +177,26 @@ if [ -n "${entry}" ]; then
   stored_pane_id="$(printf '%s' "${entry}" | jq -r '.pane_id? // empty' 2>/dev/null || true)"
   hidden="$(printf '%s' "${entry}" | jq -r '.hidden? // false' 2>/dev/null || true)"
 
-  if [ "${hidden}" = "true" ]; then
-    if _toggle_show "${stored_pane_id}"; then
-      state_set_hidden "${key}" false
-      exit 0
+  if _toggle_pane_exists "${stored_pane_id}"; then
+    if [ "${hidden}" = "true" ]; then
+      if _toggle_show "${stored_pane_id}"; then
+        state_set_hidden "${key}" false
+        exit 0
+      fi
+    else
+      if _toggle_hide "${stored_pane_id}"; then
+        state_set_hidden "${key}" true
+        exit 0
+      fi
     fi
-  else
-    if _toggle_hide "${stored_pane_id}"; then
-      state_set_hidden "${key}" true
-      exit 0
-    fi
+    # The popup is alive but the toggle could not complete (herdr call failed, or it is alone in its
+    # tab with no sibling to hide behind). Leave it as-is: opening a fresh popup here would orphan
+    # the live one and lose its session.
+    printf 'toggle.sh: could not toggle the popup (pane %s); leaving it unchanged\n' "${stored_pane_id}" >&2
+    exit 0
   fi
+
+  # The registered pane no longer exists; drop the stale entry and open a fresh popup below.
   state_delete "${key}"
 fi
 
