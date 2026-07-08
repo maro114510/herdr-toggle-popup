@@ -165,11 +165,14 @@ _toggle_hide() {
   "${herdr_bin}" pane zoom "${sibling}" --on >/dev/null 2>&1
 }
 
-# Re-shows a hidden popup by re-focusing it in place. Because it was never moved, it is still a
-# floating overlay pane and herdr renders it as one again; `plugin pane focus` also brings it to the
-# front, so no separate zoom call is needed.
+# Re-shows a hidden popup by re-zooming it in place. An overlay's on-screen look is simply its pane
+# being the focused pane of a zoomed tab, so `pane zoom <pane> --on` reproduces exactly how it looked
+# when first opened — without moving it (which would demote it to an ordinary pane).
+# We deliberately avoid `plugin pane focus` here: its eligibility (herdr's in-memory plugin-pane
+# registry) is dropped on session restore while the pane itself is restored, so a popup that outlived
+# a herdr restart would become permanently un-showable. `pane zoom` targets any live pane by id.
 _toggle_show() {
-  "${herdr_bin}" plugin pane focus "${1}" >/dev/null 2>&1
+  "${herdr_bin}" pane zoom "${1}" --on >/dev/null 2>&1
 }
 
 entry="$(state_get "${key}" 2>/dev/null || true)"

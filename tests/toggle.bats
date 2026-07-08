@@ -7,8 +7,8 @@
 # - hide-when-open: hides a registered, visible popup in place by zooming a sibling pane in its own
 #   tab to the front (never `pane move`, which would demote the overlay to an ordinary tab pane) and
 #   keeps its registry entry, marked hidden, instead of deleting it
-# - show-when-hidden: re-shows a hidden popup by re-focusing it in place (`plugin pane focus`, no
-#   move) and marks the registry entry visible again
+# - show-when-hidden: re-shows a hidden popup by re-zooming it in place (`pane zoom <pane> --on`,
+#   no move, no plugin-pane-focus) and marks the registry entry visible again
 # - stale-pane-id-recovery: when `pane get` reports the registered pane is gone, clears the stale
 #   entry and opens a fresh popup (on both the hide and show paths)
 # - live-pane toggle failure: when the popup still exists but cannot be hidden (alone in its tab, so
@@ -102,15 +102,6 @@ case "$1 $2" in
           printf '{"id":"cli:plugin","result":{"type":"plugin_pane_closed"}}\n'
         else
           printf '{"error":{"code":"plugin_pane_not_found","message":"plugin pane not found"},"id":"cli:plugin"}\n' >&2
-        fi
-        exit "$exit_code"
-        ;;
-      focus)
-        exit_code="${STUB_HERDR_FOCUS_EXIT:-0}"
-        if [ "$exit_code" -eq 0 ]; then
-          printf '{"id":"cli:plugin","result":{"type":"plugin_pane_focused"}}\n'
-        else
-          printf '{"error":{"code":"plugin_pane_not_found","message":"stub focus failure"},"id":"cli:plugin"}\n' >&2
         fi
         exit "$exit_code"
         ;;
@@ -220,7 +211,7 @@ STUB
   ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
 }
 
-@test "re-shows a hidden popup in place by re-focusing it and marks it visible again" {
+@test "re-shows a hidden popup in place by re-zooming it and marks it visible again" {
   state_set "workspace:ws1:shell" "pane-existing" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
   state_set_hidden "workspace:ws1:shell" true
 
@@ -232,8 +223,9 @@ STUB
   [ "$(echo "$output" | jq -r .pane_id)" = "pane-existing" ]
   [ "$(echo "$output" | jq -r .hidden)" = "false" ]
 
-  grep -q "^plugin pane focus pane-existing$" "$STUB_HERDR_LOG"
+  grep -q "^pane zoom pane-existing --on$" "$STUB_HERDR_LOG"
   ! grep -q "^pane move" "$STUB_HERDR_LOG"
+  ! grep -q "^plugin pane focus" "$STUB_HERDR_LOG"
   ! grep -q "^plugin pane close" "$STUB_HERDR_LOG"
   ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
 }
@@ -271,7 +263,7 @@ STUB
   [ "$(echo "$output" | jq -r '.hidden // false')" = "false" ]
 
   grep -q "^plugin pane open" "$STUB_HERDR_LOG"
-  ! grep -q "^plugin pane focus" "$STUB_HERDR_LOG"
+  ! grep -q "^pane zoom" "$STUB_HERDR_LOG"
 }
 
 @test "hide: a popup alone in its tab (no sibling) is left unchanged, not reopened" {
@@ -308,10 +300,10 @@ STUB
   ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
 }
 
-@test "show: a focus failure leaves the live hidden popup unchanged and does not reopen" {
+@test "show: a zoom failure leaves the live hidden popup unchanged and does not reopen" {
   state_set "workspace:ws1:shell" "pane-existing" "maro114510.toggle-popup" "shell" "workspace" "ws1" "" 1
   state_set_hidden "workspace:ws1:shell" true
-  export STUB_HERDR_FOCUS_EXIT=1
+  export STUB_HERDR_ZOOM_EXIT=1
 
   run bash "$TOGGLE_SH" shell
   [ "$status" -eq 0 ]
@@ -321,7 +313,7 @@ STUB
   [ "$(echo "$output" | jq -r .pane_id)" = "pane-existing" ]
   [ "$(echo "$output" | jq -r .hidden)" = "true" ]
 
-  grep -q "^plugin pane focus pane-existing$" "$STUB_HERDR_LOG"
+  grep -q "^pane zoom pane-existing --on$" "$STUB_HERDR_LOG"
   ! grep -q "^plugin pane open" "$STUB_HERDR_LOG"
 }
 
