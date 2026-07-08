@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	filePerm    = 0o600
-	testPaneID1 = "pane-1"
-	testPaneID2 = "pane-2"
+	filePerm           = 0o600
+	testPaneID1        = "pane-1"
+	testPaneID2        = "pane-2"
+	testScopeWorkspace = "workspace"
 )
 
 // bashFixtureJSON is byte-for-byte the popups.json produced by state.sh for
@@ -308,7 +309,7 @@ func TestSet_RoundTrip(t *testing.T) {
 		PaneID:          testPaneID1,
 		PluginID:        "maro114510.toggle-popup",
 		Entrypoint:      "shell",
-		Scope:           "workspace",
+		Scope:           testScopeWorkspace,
 		WorkspaceID:     ptr("ws1"),
 		TabID:           nil,
 		CreatedAtUnixMs: 1720000000000,
@@ -382,7 +383,7 @@ func TestSet_WritesDocumentedFieldSet(t *testing.T) {
 		PaneID:          testPaneID1,
 		PluginID:        "maro114510.toggle-popup",
 		Entrypoint:      "shell",
-		Scope:           "workspace",
+		Scope:           testScopeWorkspace,
 		WorkspaceID:     ptr("ws1"),
 		TabID:           nil,
 		CreatedAtUnixMs: 1,
@@ -537,7 +538,7 @@ func TestSetHidden_SetsFlagWithoutTouchingOtherFields(t *testing.T) {
 		PaneID:          testPaneID1,
 		PluginID:        "",
 		Entrypoint:      "",
-		Scope:           "workspace",
+		Scope:           testScopeWorkspace,
 		WorkspaceID:     nil,
 		TabID:           nil,
 		CreatedAtUnixMs: 0,
@@ -552,7 +553,7 @@ func TestSetHidden_SetsFlagWithoutTouchingOtherFields(t *testing.T) {
 	}
 
 	got, ok, _ := store.Get("k")
-	if !ok || got.Hidden == nil || !*got.Hidden || got.PaneID != testPaneID1 || got.Scope != "workspace" {
+	if !ok || got.Hidden == nil || !*got.Hidden || got.PaneID != testPaneID1 || got.Scope != testScopeWorkspace {
 		t.Errorf("Get() = %+v, ok=%v, want hidden=true with other fields intact", got, ok)
 	}
 }
