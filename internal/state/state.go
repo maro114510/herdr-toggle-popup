@@ -11,13 +11,10 @@ import (
 	"time"
 )
 
-// now and pid are overridden in tests to make backup-name collisions deterministic.
-var (
-	now = time.Now
-	pid = os.Getpid
+const (
+	stateDirEnvVar = "HERDR_PLUGIN_STATE_DIR"
+	dirPerm        = 0o750
 )
-
-const stateDirEnvVar = "HERDR_PLUGIN_STATE_DIR"
 
 // Entry is a single popup registry entry. Field names and types are the
 // popups.json v1 wire format — do not change JSON tags without a migration path.
@@ -52,17 +49,23 @@ func StateDirFromEnv() (string, error) {
 }
 
 // Store manages the popups.json registry rooted at a given state directory.
+// now, pid, and rename are swappable seams so tests can make corruption
+// recovery deterministic and force backup failures without touching real OS
+// permissions.
 type Store struct {
-	dir string
+	dir    string
+	now    func() time.Time
+	pid    func() int
+	rename func(oldpath, newpath string) error
 }
 
 // NewStore returns a Store backed by popups.json under dir.
 func NewStore(dir string) *Store {
-	return &Store{dir: dir}
+	return &Store{dir: dir, now: time.Now, pid: os.Getpid, rename: os.Rename}
 }
 
 func (s *Store) filePath() string {
-	return filepath.Join(s.dir, "popups.json")
+	return filepath.Clean(filepath.Join(s.dir, "popups.json"))
 }
 
 // decodeRegistry parses data and reports whether it is a valid v1 registry:
@@ -70,20 +73,20 @@ func (s *Store) filePath() string {
 func decodeRegistry(data []byte) (Registry, bool) {
 	var reg Registry
 	if err := json.Unmarshal(data, &reg); err != nil {
-		return Registry{}, false
+		return reg, false
 	}
 	if reg.Version != 1 || reg.Popups == nil {
-		return Registry{}, false
+		return reg, false
 	}
 	return reg, true
 }
 
 // backupPath returns the path popups.json should be moved to when corrupt,
 // appending a pid suffix if the timestamp-based name is already taken.
-func backupPath(file string) string {
-	backup := fmt.Sprintf("%s.bak.%d", file, now().Unix())
+func (s *Store) backupPath(file string) string {
+	backup := fmt.Sprintf("%s.bak.%d", file, s.now().Unix())
 	if _, err := os.Stat(backup); err == nil {
-		backup = fmt.Sprintf("%s.%d", backup, pid())
+		backup = fmt.Sprintf("%s.%d", backup, s.pid())
 	}
 	return backup
 }
@@ -95,7 +98,7 @@ func backupPath(file string) string {
 // errors without resetting the file.
 func (s *Store) Read() (Registry, error) {
 	file := s.filePath()
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(filepath.Clean(file))
 	if errors.Is(err, os.ErrNotExist) {
 		return defaultRegistry(), nil
 	}
@@ -107,8 +110,8 @@ func (s *Store) Read() (Registry, error) {
 		return reg, nil
 	}
 
-	backup := backupPath(file)
-	if err := os.Rename(file, backup); err != nil {
+	backup := s.backupPath(file)
+	if err := s.rename(file, backup); err != nil {
 		return Registry{}, fmt.Errorf("state: failed to back up corrupt registry, aborting reset: %w", err)
 	}
 
@@ -130,7 +133,7 @@ func (s *Store) WriteRegistry(reg Registry) error {
 
 	file := s.filePath()
 	dir := filepath.Dir(file)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return err
 	}
 
@@ -141,29 +144,29 @@ func (s *Store) WriteRegistry(reg Registry) error {
 	tmpPath := tmp.Name()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
-	if err := os.Rename(tmpPath, file); err != nil {
-		os.Remove(tmpPath)
+	if err := s.rename(tmpPath, file); err != nil {
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil
 }
 
 // Get returns the entry for key. ok is false if the key is not present.
-func (s *Store) Get(key string) (entry Entry, ok bool, err error) {
+func (s *Store) Get(key string) (Entry, bool, error) {
 	reg, err := s.Read()
 	if err != nil {
 		return Entry{}, false, err
 	}
-	entry, ok = reg.Popups[key]
+	entry, ok := reg.Popups[key]
 	return entry, ok, nil
 }
 
