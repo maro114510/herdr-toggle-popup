@@ -34,6 +34,10 @@ jobs:
 
   go:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -49,7 +53,8 @@ jobs:
       - name: Run go vet
         run: go vet ./...
       - name: Run go test
-        run: go test ./...
+        run: go test -coverprofile=coverage.out ./...
+      - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
 
   golangci-lint:
     runs-on: ubuntu-latest
