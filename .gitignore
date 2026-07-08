@@ -3,6 +3,9 @@
 # Environments
 .env
 
+### Go ###
+/bin/
+
 ### others ###
 # *.jpg
 # *.png

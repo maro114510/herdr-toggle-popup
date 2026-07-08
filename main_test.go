@@ -1,0 +1,68 @@
+package main
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
+
+func TestRun(t *testing.T) {
+	t.Run("known commands", func(t *testing.T) {
+		cases := map[string]struct {
+			args []string
+		}{
+			cmdToggle:       {args: []string{cmdToggle}},
+			cmdOnPaneClosed: {args: []string{cmdOnPaneClosed}},
+			cmdPopupShell:   {args: []string{cmdPopupShell}},
+		}
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				var stdout, stderr bytes.Buffer
+
+				code := run(tc.args, &stdout, &stderr)
+
+				if code == 0 {
+					t.Errorf("exit code = 0, want non-zero")
+				}
+				if !strings.Contains(stderr.String(), "not implemented") {
+					t.Errorf("stderr = %q, want it to contain %q", stderr.String(), "not implemented")
+				}
+			})
+		}
+	})
+
+	t.Run("invalid input", func(t *testing.T) {
+		cases := map[string]struct {
+			args      []string
+			wantInMsg []string
+		}{
+			"no args": {
+				args:      nil,
+				wantInMsg: []string{cmdToggle, cmdOnPaneClosed, cmdPopupShell},
+			},
+			"unknown command": {
+				args:      []string{"unknown-cmd"},
+				wantInMsg: []string{"unknown-cmd"},
+			},
+		}
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				var stdout, stderr bytes.Buffer
+
+				code := run(tc.args, &stdout, &stderr)
+
+				if code == 0 {
+					t.Errorf("exit code = 0, want non-zero")
+				}
+				if stdout.Len() != 0 {
+					t.Errorf("stdout = %q, want empty", stdout.String())
+				}
+				for _, want := range tc.wantInMsg {
+					if !strings.Contains(stderr.String(), want) {
+						t.Errorf("stderr = %q, want it to contain %q", stderr.String(), want)
+					}
+				}
+			})
+		}
+	})
+}
