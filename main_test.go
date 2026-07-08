@@ -7,7 +7,11 @@ import (
 )
 
 func TestRun(t *testing.T) {
+	t.Parallel()
+
 	t.Run("known commands", func(t *testing.T) {
+		t.Parallel()
+
 		cases := map[string]struct {
 			args []string
 		}{
@@ -17,6 +21,8 @@ func TestRun(t *testing.T) {
 		}
 		for name, tc := range cases {
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
 				var stdout, stderr bytes.Buffer
 
 				code := run(tc.args, &stdout, &stderr)
@@ -32,6 +38,8 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("invalid input", func(t *testing.T) {
+		t.Parallel()
+
 		cases := map[string]struct {
 			args      []string
 			wantInMsg []string
@@ -47,6 +55,8 @@ func TestRun(t *testing.T) {
 		}
 		for name, tc := range cases {
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
 				var stdout, stderr bytes.Buffer
 
 				code := run(tc.args, &stdout, &stderr)
