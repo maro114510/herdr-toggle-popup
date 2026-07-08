@@ -47,7 +47,6 @@ linters:
     - nakedret
     - nilerr
     - nilnesserr
-    - noctx
     - nolintlint
     - paralleltest
     - perfsprint
