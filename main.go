@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/maro114510/herdr-toggle-popup/internal/onpaneclosed"
+	"github.com/maro114510/herdr-toggle-popup/internal/popupshell"
 	"github.com/maro114510/herdr-toggle-popup/internal/toggle"
 )
 
@@ -31,9 +33,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case cmdToggle:
 		return toggle.Run(args[1:], stdout, stderr)
-	case cmdOnPaneClosed, cmdPopupShell:
-		_, _ = fmt.Fprintf(stderr, "%s: not implemented\n", args[0])
-		return 1
+	case cmdOnPaneClosed:
+		return onpaneclosed.Run(args[1:], stdout, stderr)
+	case cmdPopupShell:
+		return popupshell.Run(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown command: %s\n\n", args[0])
 		_, _ = fmt.Fprint(stderr, usage)
