@@ -14,7 +14,11 @@ const (
 	cmdToggle       = "toggle"
 	cmdOnPaneClosed = "on-pane-closed"
 	cmdPopupShell   = "popup-shell"
+	cmdVersion      = "version"
 )
+
+// version is overridden at build time via -ldflags "-X main.version=...".
+var version = "dev"
 
 const usage = `Usage: toggle-popup <command>
 
@@ -22,6 +26,7 @@ Commands:
   toggle           Toggle the popup pane
   on-pane-closed   Handle a pane-closed event
   popup-shell      Run the shell inside the popup pane
+  version          Print the toggle-popup version
 `
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -37,6 +42,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return onpaneclosed.Run(args[1:], stdout, stderr)
 	case cmdPopupShell:
 		return popupshell.Run(args[1:], stdout, stderr)
+	case cmdVersion:
+		_, _ = fmt.Fprintln(stdout, version)
+		return 0
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown command: %s\n\n", args[0])
 		_, _ = fmt.Fprint(stderr, usage)

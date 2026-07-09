@@ -116,3 +116,21 @@ func TestRun_PopupShellDispatchesToPopupShellSubcommand(t *testing.T) {
 		t.Errorf("stderr = %q, want a popup-shell-prefixed error, confirming dispatch", stderr.String())
 	}
 }
+
+func TestRun_VersionPrintsVersionToStdout(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdVersion}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), version) {
+		t.Errorf("stdout = %q, want it to contain %q", stdout.String(), version)
+	}
+}

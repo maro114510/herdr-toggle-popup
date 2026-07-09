@@ -13,12 +13,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - name: Run go vet
+        run: go vet ./...
+      - name: Run go test
+        run: go test ./...
+
   github-release:
     name: GitHub Release
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
 
       - name: Verify tag matches manifest version
         env:
@@ -29,8 +49,41 @@ jobs:
           MANIFEST_VERSION="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' herdr-plugin.toml | head -n 1)"
           test "${MANIFEST_VERSION}" = "${VERSION}" || { echo "herdr-plugin.toml has version ${MANIFEST_VERSION}, expected ${VERSION}"; exit 1; }
 
+      - name: Build cross-compiled binaries
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          VERSION="${TAG_NAME#v}"
+          mkdir -p dist
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            echo "Building ${goos}/${goarch}"
+            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build \
+              -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/toggle-popup_${goos}_${goarch}" .
+          done
+
+      - name: Smoke test linux/amd64 binary
+        run: |
+          set -eu
+          ./dist/toggle-popup_linux_amd64 version
+
+      - name: Generate checksums
+        run: |
+          set -eu
+          (cd dist && sha256sum toggle-popup_* > checksums.txt)
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
-        run: gh release create "${TAG_NAME}" --title "${TAG_NAME}" --generate-notes --verify-tag
+        run: |
+          gh release create "${TAG_NAME}" --title "${TAG_NAME}" --generate-notes --verify-tag \
+            dist/toggle-popup_darwin_amd64 \
+            dist/toggle-popup_darwin_arm64 \
+            dist/toggle-popup_linux_amd64 \
+            dist/toggle-popup_linux_arm64 \
+            dist/checksums.txt
