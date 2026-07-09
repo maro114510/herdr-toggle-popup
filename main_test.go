@@ -6,35 +6,20 @@ import (
 	"testing"
 )
 
+// assertDispatched fails the test if stderr looks like it fell through to the not-implemented
+// or unknown-command branches instead of reaching the dispatched subcommand.
+func assertDispatched(t *testing.T, stderr string) {
+	t.Helper()
+
+	for _, unwanted := range [...]string{"not implemented", "unknown command"} {
+		if strings.Contains(stderr, unwanted) {
+			t.Errorf("stderr = %q, want it to not contain %q", stderr, unwanted)
+		}
+	}
+}
+
 func TestRun(t *testing.T) {
 	t.Parallel()
-
-	t.Run("not-yet-implemented commands", func(t *testing.T) {
-		t.Parallel()
-
-		cases := map[string]struct {
-			args []string
-		}{
-			cmdOnPaneClosed: {args: []string{cmdOnPaneClosed}},
-			cmdPopupShell:   {args: []string{cmdPopupShell}},
-		}
-		for name, tc := range cases {
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-
-				var stdout, stderr bytes.Buffer
-
-				code := run(tc.args, &stdout, &stderr)
-
-				if code == 0 {
-					t.Errorf("exit code = 0, want non-zero")
-				}
-				if !strings.Contains(stderr.String(), "not implemented") {
-					t.Errorf("stderr = %q, want it to contain %q", stderr.String(), "not implemented")
-				}
-			})
-		}
-	})
 
 	t.Run("invalid input", func(t *testing.T) {
 		t.Parallel()
@@ -89,9 +74,45 @@ func TestRun_ToggleDispatchesToToggleSubcommand(t *testing.T) {
 	if code == 0 {
 		t.Errorf("exit code = 0, want non-zero for a toggle call missing its entrypoint arg")
 	}
-	for _, unwanted := range []string{"not implemented", "unknown command"} {
-		if strings.Contains(stderr.String(), unwanted) {
-			t.Errorf("stderr = %q, want it to not contain %q", stderr.String(), unwanted)
-		}
+	assertDispatched(t, stderr.String())
+}
+
+// on-pane-closed is wired to internal/onpaneclosed.Run (see internal/onpaneclosed for its own
+// test suite); this only asserts main.go actually dispatches to it, using a missing-state-dir
+// error to get an onpaneclosed-specific message without needing a real registry.
+func TestRun_OnPaneClosedDispatchesToOnPaneClosedSubcommand(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_PANE_ID", "pane-1")
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdOnPaneClosed}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero when HERDR_PLUGIN_STATE_DIR is unset")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "on-pane-closed") {
+		t.Errorf("stderr = %q, want an on-pane-closed-prefixed error, confirming dispatch", stderr.String())
+	}
+}
+
+// popup-shell is wired to internal/popupshell.Run (see internal/popupshell for its own test
+// suite, including one that proves it really execs and replaces the process); this only
+// asserts main.go actually dispatches to it. A nonexistent $SHELL fails before any exec is
+// attempted, so this stays a safe in-process test.
+func TestRun_PopupShellDispatchesToPopupShellSubcommand(t *testing.T) {
+	t.Setenv("SHELL", "/nonexistent/definitely-not-a-shell")
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdPopupShell}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero for a nonexistent $SHELL")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "popup-shell") {
+		t.Errorf("stderr = %q, want a popup-shell-prefixed error, confirming dispatch", stderr.String())
 	}
 }
