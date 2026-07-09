@@ -22,6 +22,12 @@ block() { # $1=file $2=table header, e.g. "[[actions]]"
   grep -qE '^platforms = \["macos", "linux"\]$' "$MANIFEST"
 }
 
+@test "manifest declares the build step" {
+  run block "$MANIFEST" "[[build]]"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qE '^command = \["sh", "scripts/build\.sh"\]$'
+}
+
 @test "manifest declares the toggle-shell action" {
   run block "$MANIFEST" "[[actions]]"
   [ "$status" -eq 0 ]
