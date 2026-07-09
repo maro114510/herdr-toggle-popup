@@ -4,6 +4,9 @@ version = "0.1.2"
 min_herdr_version = "0.7.0"
 platforms = ["macos", "linux"]
 
+[[build]]
+command = ["sh", "scripts/build.sh"]
+
 [[actions]]
 id = "toggle-shell"
 title = "Toggle popup shell"
