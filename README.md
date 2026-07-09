@@ -10,10 +10,13 @@ A [Herdr](https://herdr.dev) plugin that toggles an overlay popup shell with one
 herdr plugin install maro114510/herdr-toggle-popup
 ```
 
-For local development, link your checkout instead:
+Install runs a confirmed build step: herdr builds `./bin/toggle-popup` from source if you have a Go toolchain, otherwise it downloads and checksum-verifies the matching prebuilt binary from GitHub Releases.
+
+For local development, link your checkout instead, then build the binary yourself:
 
 ```bash
 herdr plugin link .
+sh scripts/build.sh   # or: go build -o bin/toggle-popup .
 ```
 
 ## Binding a key
@@ -43,7 +46,7 @@ With this set, toggling the same entrypoint from the same directory in any works
 ## Configuring popup size
 
 Herdr has no way to open a popup at an absolute size, or to read a pane's current dimensions — `herdr pane resize` only supports relative, directional resizing (`--direction left|right|up|down`, `--amount FLOAT`).
-Because of this, toggle.sh can only approximate a target size by issuing a bounded number of resize calls after opening; it cannot match an exact size or percentage the way tmux's `-w`/`-h` can.
+Because of this, the plugin can only approximate a target size by issuing a bounded number of resize calls after opening; it cannot match an exact size or percentage the way tmux's `-w`/`-h` can.
 
 To configure this, add a `popup_size.<entrypoint>` key to `$HERDR_PLUGIN_CONFIG_DIR/config.toml` (see "Directory-scoped popups" above for finding that directory):
 

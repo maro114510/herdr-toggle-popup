@@ -11,14 +11,14 @@ command = ["sh", "scripts/build.sh"]
 id = "toggle-shell"
 title = "Toggle popup shell"
 contexts = ["workspace", "tab", "pane"]
-command = ["bash", "toggle.sh", "shell"]
+command = ["./bin/toggle-popup", "toggle", "shell"]
 
 [[panes]]
 id = "shell"
 title = "Popup Shell"
 placement = "overlay"
-command = ["bash", "-c", "exec \"$HERDR_PLUGIN_ROOT/popup-shell.sh\""]
+command = ["./bin/toggle-popup", "popup-shell"]
 
 [[events]]
 on = "pane.closed"
-command = ["bash", "on-pane-closed.sh"]
+command = ["./bin/toggle-popup", "on-pane-closed"]
