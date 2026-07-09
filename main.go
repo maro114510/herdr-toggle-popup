@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/maro114510/herdr-toggle-popup/internal/toggle"
 )
 
 const (
@@ -20,15 +22,16 @@ Commands:
   popup-shell      Run the shell inside the popup pane
 `
 
-//nolint:unparam // exit code always 1 until subcommands are implemented in later issues of #35
-func run(args []string, _, stderr io.Writer) int {
+func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		_, _ = fmt.Fprint(stderr, usage)
 		return 1
 	}
 
 	switch args[0] {
-	case cmdToggle, cmdOnPaneClosed, cmdPopupShell:
+	case cmdToggle:
+		return toggle.Run(args[1:], stdout, stderr)
+	case cmdOnPaneClosed, cmdPopupShell:
 		_, _ = fmt.Fprintf(stderr, "%s: not implemented\n", args[0])
 		return 1
 	default:

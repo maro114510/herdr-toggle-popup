@@ -9,13 +9,12 @@ import (
 func TestRun(t *testing.T) {
 	t.Parallel()
 
-	t.Run("known commands", func(t *testing.T) {
+	t.Run("not-yet-implemented commands", func(t *testing.T) {
 		t.Parallel()
 
 		cases := map[string]struct {
 			args []string
 		}{
-			cmdToggle:       {args: []string{cmdToggle}},
 			cmdOnPaneClosed: {args: []string{cmdOnPaneClosed}},
 			cmdPopupShell:   {args: []string{cmdPopupShell}},
 		}
@@ -75,4 +74,24 @@ func TestRun(t *testing.T) {
 			})
 		}
 	})
+}
+
+// toggle is wired to internal/toggle.Run (see internal/toggle for its own test suite); this only
+// asserts main.go actually dispatches to it rather than falling through to the not-implemented
+// or unknown-command branches.
+func TestRun_ToggleDispatchesToToggleSubcommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdToggle}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero for a toggle call missing its entrypoint arg")
+	}
+	for _, unwanted := range []string{"not implemented", "unknown command"} {
+		if strings.Contains(stderr.String(), unwanted) {
+			t.Errorf("stderr = %q, want it to not contain %q", stderr.String(), unwanted)
+		}
+	}
 }
