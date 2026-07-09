@@ -150,7 +150,7 @@ func TestManifestShellPane(t *testing.T) {
 	if p.Placement != "overlay" {
 		t.Errorf("Placement = %q, want %q", p.Placement, "overlay")
 	}
-	wantCommand := []string{toggleBinary, "popup-shell"}
+	wantCommand := []string{"sh", "-c", `exec "$HERDR_PLUGIN_ROOT/bin/toggle-popup" popup-shell`}
 	if !reflect.DeepEqual(p.Command, wantCommand) {
 		t.Errorf("Command = %v, want %v", p.Command, wantCommand)
 	}
