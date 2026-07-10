@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
 const (
 	stateDirEnvVar = "HERDR_PLUGIN_STATE_DIR"
 	dirPerm        = 0o750
+	lockFilePerm   = 0o600
 )
 
 // Entry is a single popup registry entry. Field names and types are the
@@ -66,6 +68,36 @@ func NewStore(dir string) *Store {
 
 func (s *Store) filePath() string {
 	return filepath.Clean(filepath.Join(s.dir, "popups.json"))
+}
+
+// WithLock runs fn while holding the registry's process-wide exclusive lock.
+// Callers use this to cover read-modify-write sequences that span multiple Store
+// operations or external side effects. The lock is always released before
+// WithLock returns.
+func (s *Store) WithLock(fn func() error) error {
+	dir := filepath.Dir(s.filePath())
+	//nolint:gosec // HERDR_PLUGIN_STATE_DIR is the plugin-owned registry root; first toggle must create it before locking.
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
+		return err
+	}
+
+	lockPath := filepath.Clean(filepath.Join(dir, "popups.lock"))
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, lockFilePerm)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = lockFile.Close()
+	}()
+
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer func() {
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	}()
+
+	return fn()
 }
 
 // decodeRegistry parses data and reports whether it is a valid v1 registry:
