@@ -17,7 +17,7 @@ command = ["./bin/toggle-popup", "toggle", "shell"]
 id = "shell"
 title = "Popup Shell"
 placement = "overlay"
-command = ["./bin/toggle-popup", "popup-shell"]
+command = ["sh", "-lc", "exec \"${SHELL:-/bin/zsh}\""]
 
 [[events]]
 on = "pane.closed"
