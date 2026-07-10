@@ -258,6 +258,100 @@ func TestWriteRegistry_NoLeftoverTempFiles(t *testing.T) {
 	}
 }
 
+func TestWithLock_SerializesAcrossProcesses(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "plugin-state")
+	firstMarker := filepath.Join(dir, "first.locked")
+	secondMarker := filepath.Join(dir, "second.locked")
+	firstRelease := filepath.Join(dir, "first.release")
+	secondRelease := filepath.Join(dir, "second.release")
+
+	first := startLockHelper(t, dir, firstMarker, firstRelease)
+	waitForFile(t, firstMarker)
+
+	second := startLockHelper(t, dir, secondMarker, secondRelease)
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(secondMarker); err == nil {
+		t.Fatal("second process entered the locked section before the first released it")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat second marker: %v", err)
+	}
+
+	if err := os.WriteFile(firstRelease, []byte("release"), filePerm); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Wait(); err != nil {
+		t.Fatalf("first helper: %v", err)
+	}
+
+	waitForFile(t, secondMarker)
+	if err := os.WriteFile(secondRelease, []byte("release"), filePerm); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Wait(); err != nil {
+		t.Fatalf("second helper: %v", err)
+	}
+}
+
+func startLockHelper(t *testing.T, dir, marker, release string) *exec.Cmd {
+	t.Helper()
+
+	//nolint:gosec // test helper intentionally re-execs this trusted test binary.
+	cmd := exec.Command(os.Args[0], "-test.run=TestWithLock_HelperProcess", "--", dir, marker, release)
+	cmd.Env = append(os.Environ(), "GO_WANT_LOCK_HELPER_PROCESS=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
+}
+
+//nolint:paralleltest // helper may os.Exit and is only run in a subprocess.
+func TestWithLock_HelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_LOCK_HELPER_PROCESS") != "1" {
+		return
+	}
+	if len(os.Args) < 4 {
+		t.Fatalf("helper args = %v", os.Args)
+	}
+	args := os.Args[len(os.Args)-3:]
+
+	store := NewStore(args[0])
+	if err := store.WithLock(func() error {
+		//nolint:gosec // helper paths are created by the parent test under t.TempDir.
+		if err := os.WriteFile(args[1], []byte("locked"), filePerm); err != nil {
+			return err
+		}
+		for {
+			//nolint:gosec // helper paths are created by the parent test under t.TempDir.
+			if _, err := os.Stat(args[2]); err == nil {
+				return nil
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	os.Exit(0)
+}
+
 func seedStore(t *testing.T) (*Store, string) {
 	t.Helper()
 
