@@ -222,3 +222,20 @@ func (s *Store) DeleteByPaneID(paneID string) error {
 	}
 	return s.WriteRegistry(reg)
 }
+
+// DeleteVisibleByPaneID removes every non-hidden entry whose PaneID matches, regardless of key.
+// Hidden entries represent popups intentionally closed in Herdr while their tmux session remains
+// available for the next toggle, so pane.closed must not discard them.
+func (s *Store) DeleteVisibleByPaneID(paneID string) error {
+	reg, err := s.Read()
+	if err != nil {
+		return err
+	}
+	for key, entry := range reg.Popups {
+		hidden := entry.Hidden != nil && *entry.Hidden
+		if entry.PaneID == paneID && !hidden {
+			delete(reg.Popups, key)
+		}
+	}
+	return s.WriteRegistry(reg)
+}

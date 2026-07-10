@@ -15,10 +15,10 @@ import (
 //
 // - open-when-empty: opens a popup and registers its pane_id under workspace:<id>:<entrypoint>
 // - the open call passes plugin, entrypoint, placement, cwd, focus, but no workspace/target-pane
-// - hide-when-open: hides a registered, visible popup in place, keeps its entry marked hidden
-// - show-when-hidden: re-shows a hidden popup by re-focusing it, marks the entry visible again
-// - stale-pane-id-recovery on both the hide and show paths
-// - live-pane toggle failure (no sibling, or herdr call fails) leaves it unchanged
+// - hide-when-open: marks a registered visible popup hidden, then closes its Herdr pane
+// - show-when-hidden: opens a fresh Herdr pane backed by the same tmux session and marks it visible
+// - stale-pane-id-recovery on the hide path
+// - live-pane close failure rolls the hidden flag back to visible and leaves the pane registered
 // - open failure: prints to stderr, does not touch the registry, exits non-zero
 // - missing focused-pane cwd: fails before ever invoking herdr plugin pane open
 // - missing workspace id: fails before touching the registry or calling herdr
@@ -59,6 +59,7 @@ const (
 	testPaneOuter    = "pane-outer"
 
 	callPaneMove        = "pane move"
+	callPaneZoom        = "pane zoom"
 	callPluginPaneClose = "plugin pane close"
 	callPluginPaneOpen  = "plugin pane open"
 
@@ -257,21 +258,21 @@ func TestHidesAlreadyOpenPopup(t *testing.T) {
 	}
 
 	log := env.log(t)
-	if !strings.Contains(log, "pane zoom pane-sibling --on\n") {
-		t.Errorf("log = %q, want a pane zoom pane-sibling --on call", log)
+	if !strings.Contains(log, "plugin pane close pane-existing\n") {
+		t.Errorf("log = %q, want a plugin pane close pane-existing call", log)
 	}
-	for _, unwanted := range []string{callPaneMove, callPluginPaneClose, callPluginPaneOpen} {
+	for _, unwanted := range []string{callPaneMove, callPaneZoom, callPluginPaneOpen} {
 		if strings.Contains(log, unwanted) {
 			t.Errorf("log = %q, want it to not contain %q", log, unwanted)
 		}
 	}
 }
 
-//nolint:paralleltest // uses setupEnv, which mutates shared env vars via t.Setenv, not parallel-safe.
 func TestReShowsHiddenPopup(t *testing.T) {
 	env := setupEnv(t)
 	env.seed(t, keyWorkspaceShell, testPaneExisting, "workspace", testWorkspaceID)
 	env.setHidden(t)
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-reopened")
 
 	code, stderr := invoke(testEntrypointShell)
 	if code != 0 {
@@ -282,18 +283,18 @@ func TestReShowsHiddenPopup(t *testing.T) {
 	if !ok {
 		t.Fatal("entry not found")
 	}
-	if entry.PaneID != testPaneExisting {
-		t.Errorf("PaneID = %q, want pane-existing", entry.PaneID)
+	if entry.PaneID != "pane-reopened" {
+		t.Errorf("PaneID = %q, want pane-reopened", entry.PaneID)
 	}
-	if entry.Hidden == nil || *entry.Hidden {
+	if entry.Hidden != nil && *entry.Hidden {
 		t.Errorf("Hidden = %v, want false", entry.Hidden)
 	}
 
 	log := env.log(t)
-	if !strings.Contains(log, "plugin pane focus pane-existing\n") {
-		t.Errorf("log = %q, want a plugin pane focus pane-existing call", log)
+	if !strings.Contains(log, callPluginPaneOpen) {
+		t.Errorf("log = %q, want a plugin pane open call", log)
 	}
-	for _, unwanted := range []string{callPaneMove, callPluginPaneClose, callPluginPaneOpen} {
+	for _, unwanted := range []string{callPaneMove, callPluginPaneClose, "plugin pane focus", callPaneZoom, "pane get"} {
 		if strings.Contains(log, unwanted) {
 			t.Errorf("log = %q, want it to not contain %q", log, unwanted)
 		}
@@ -326,14 +327,14 @@ func TestStalePaneClearsEntryAndOpensFreshOnHidePath(t *testing.T) {
 	if !strings.Contains(log, callPluginPaneOpen) {
 		t.Errorf("log = %q, want a plugin pane open call", log)
 	}
-	for _, unwanted := range []string{"pane zoom", callPluginPaneClose} {
+	for _, unwanted := range []string{callPaneZoom, callPluginPaneClose} {
 		if strings.Contains(log, unwanted) {
 			t.Errorf("log = %q, want it to not contain %q", log, unwanted)
 		}
 	}
 }
 
-func TestStalePaneClearsHiddenEntryAndOpensFreshOnShowPath(t *testing.T) {
+func TestHiddenEntryOpensFreshWithoutStaleCheckOnShowPath(t *testing.T) {
 	env := setupEnv(t)
 	env.seed(t, keyWorkspaceShell, "pane-stale", "workspace", testWorkspaceID)
 	env.setHidden(t)
@@ -363,21 +364,20 @@ func TestStalePaneClearsHiddenEntryAndOpensFreshOnShowPath(t *testing.T) {
 	if strings.Contains(log, "plugin pane focus") {
 		t.Errorf("log = %q, want it to not contain plugin pane focus", log)
 	}
+	if strings.Contains(log, "pane get") {
+		t.Errorf("log = %q, want it to not contain pane get for a hidden entry", log)
+	}
 }
 
-func TestHideNoSiblingLeavesUnchanged(t *testing.T) {
+func TestHideCloseFailureRollsBackHiddenFlag(t *testing.T) {
 	env := setupEnv(t)
 	env.seed(t, keyWorkspaceShell, testPaneExisting, "workspace", testWorkspaceID)
-	t.Setenv("STUB_HERDR_LAYOUT_SOLO", "1")
+	t.Setenv("STUB_HERDR_CLOSE_EXIT", "1")
 
 	code, stderr := invoke(testEntrypointShell)
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
-	if stderr == "" {
-		t.Error("stderr = empty, want a message")
-	}
-
 	entry, ok := env.entry(t, keyWorkspaceShell)
 	if !ok {
 		t.Fatal("entry not found")
@@ -390,49 +390,25 @@ func TestHideNoSiblingLeavesUnchanged(t *testing.T) {
 	}
 
 	log := env.log(t)
-	for _, unwanted := range []string{"pane zoom", callPaneMove, callPluginPaneOpen, callPluginPaneClose} {
+	if !strings.Contains(log, "plugin pane close pane-existing\n") {
+		t.Errorf("log = %q, want a plugin pane close call", log)
+	}
+	for _, unwanted := range []string{callPaneZoom, callPaneMove, callPluginPaneOpen} {
 		if strings.Contains(log, unwanted) {
 			t.Errorf("log = %q, want it to not contain %q", log, unwanted)
 		}
 	}
 }
 
-func TestHideZoomFailureLeavesUnchanged(t *testing.T) {
-	env := setupEnv(t)
-	env.seed(t, keyWorkspaceShell, testPaneExisting, "workspace", testWorkspaceID)
-	t.Setenv("STUB_HERDR_ZOOM_EXIT", "1")
-
-	code, stderr := invoke(testEntrypointShell)
-	if code != 0 {
-		t.Fatalf("code = %d, stderr = %q", code, stderr)
-	}
-
-	entry, ok := env.entry(t, keyWorkspaceShell)
-	if !ok {
-		t.Fatal("entry not found")
-	}
-	if entry.Hidden != nil && *entry.Hidden {
-		t.Errorf("Hidden = %v, want false", entry.Hidden)
-	}
-
-	log := env.log(t)
-	if !strings.Contains(log, "pane zoom pane-sibling --on\n") {
-		t.Errorf("log = %q, want a pane zoom call", log)
-	}
-	if strings.Contains(log, callPluginPaneOpen) {
-		t.Errorf("log = %q, want it to not contain plugin pane open", log)
-	}
-}
-
-func TestShowFocusFailureLeavesUnchanged(t *testing.T) {
+func TestShowOpenFailureLeavesHiddenEntryUnchanged(t *testing.T) {
 	env := setupEnv(t)
 	env.seed(t, keyWorkspaceShell, testPaneExisting, "workspace", testWorkspaceID)
 	env.setHidden(t)
-	t.Setenv("STUB_HERDR_FOCUS_EXIT", "1")
+	t.Setenv("STUB_HERDR_OPEN_EXIT", "1")
 
 	code, stderr := invoke(testEntrypointShell)
-	if code != 0 {
-		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	if code == 0 {
+		t.Fatalf("code = 0, want non-zero (stderr = %q)", stderr)
 	}
 
 	entry, ok := env.entry(t, keyWorkspaceShell)
@@ -444,11 +420,11 @@ func TestShowFocusFailureLeavesUnchanged(t *testing.T) {
 	}
 
 	log := env.log(t)
-	if !strings.Contains(log, "plugin pane focus pane-existing\n") {
-		t.Errorf("log = %q, want a plugin pane focus call", log)
+	if !strings.Contains(log, callPluginPaneOpen) {
+		t.Errorf("log = %q, want a plugin pane open call", log)
 	}
-	if strings.Contains(log, callPluginPaneOpen) {
-		t.Errorf("log = %q, want it to not contain plugin pane open", log)
+	if strings.Contains(log, "plugin pane focus") {
+		t.Errorf("log = %q, want it to not contain plugin pane focus", log)
 	}
 }
 
@@ -644,10 +620,10 @@ func TestSameEntrypointToggleHidesRegardlessOfMode(t *testing.T) {
 	}
 
 	log := env.log(t)
-	if !strings.Contains(log, "pane zoom pane-sibling --on\n") {
-		t.Errorf("log = %q, want a pane zoom call", log)
+	if !strings.Contains(log, "plugin pane close pane-existing\n") {
+		t.Errorf("log = %q, want a plugin pane close call", log)
 	}
-	for _, unwanted := range []string{callPaneMove, callPluginPaneClose, callPluginPaneOpen} {
+	for _, unwanted := range []string{callPaneMove, callPaneZoom, callPluginPaneOpen} {
 		if strings.Contains(log, unwanted) {
 			t.Errorf("log = %q, want it to not contain %q", log, unwanted)
 		}
@@ -787,8 +763,8 @@ func TestScopeDirectorySharedAcrossWorkspaces(t *testing.T) {
 		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
 
-	if !strings.Contains(env.log(t), "pane zoom pane-sibling --on\n") {
-		t.Errorf("log = %q, want a pane zoom call", env.log(t))
+	if !strings.Contains(env.log(t), "plugin pane close "+before.PaneID+"\n") {
+		t.Errorf("log = %q, want a plugin pane close call", env.log(t))
 	}
 	if strings.Contains(env.log(t), callPaneMove) {
 		t.Error("log contains pane move, want none")
@@ -916,19 +892,15 @@ func TestNestedHidingInnerLeavesOuterUntouched(t *testing.T) {
 	assertEntryPaneIDAndHidden(t, outer, ok, testPaneOuter, false)
 
 	log := env.log(t)
-	if !strings.Contains(log, "pane zoom pane-sibling --on\n") {
-		t.Errorf("log = %q, want a pane zoom call", log)
-	}
-	if strings.Contains(log, callPluginPaneClose) {
-		t.Error("log contains plugin pane close, want none")
+	if !strings.Contains(log, "plugin pane close pane-inner\n") {
+		t.Errorf("log = %q, want a plugin pane close call", log)
 	}
 
 	assertCallSequence(t, log, []string{
 		callPluginPaneOpen,
 		callPluginPaneOpen,
 		"pane get pane-inner",
-		"pane layout --pane",
-		"pane zoom pane-sibling",
+		callPluginPaneClose,
 	})
 }
 
@@ -1087,7 +1059,7 @@ func TestPopupSizeNeverAttemptedOnHidePath(t *testing.T) {
 }
 
 //nolint:paralleltest // uses setupEnv, which mutates shared env vars via t.Setenv, not parallel-safe.
-func TestPopupSizeNeverAttemptedOnShowPath(t *testing.T) {
+func TestPopupSizeRunsOnShowPathBecauseHiddenPopupOpensNewHerdrPane(t *testing.T) {
 	env := setupEnv(t)
 	writeSizeConfig(t, env, testEntrypointShell, "right:0.5:1")
 	env.seed(t, keyWorkspaceShell, testPaneExisting, "workspace", testWorkspaceID)
@@ -1097,8 +1069,8 @@ func TestPopupSizeNeverAttemptedOnShowPath(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
-	if strings.Contains(env.log(t), "pane resize") {
-		t.Error("log contains pane resize, want none")
+	if !strings.Contains(env.log(t), "pane resize --direction right --amount 0.5 --pane") {
+		t.Errorf("log = %q, want a pane resize call", env.log(t))
 	}
 }
 

@@ -24,6 +24,44 @@ sha256_of() {
   fi
 }
 
+ensure_tmux() {
+  if command -v tmux >/dev/null 2>&1; then
+    echo "build.sh: tmux found on PATH"
+    return
+  fi
+
+  echo "build.sh: tmux not found on PATH; attempting to install it"
+
+  if command -v brew >/dev/null 2>&1; then
+    brew install tmux
+  elif command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    apt-get update
+    apt-get install -y tmux
+  elif command -v dnf >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    dnf install -y tmux
+  elif command -v pacman >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    pacman -Sy --noconfirm tmux
+  else
+    cat >&2 <<'EOF'
+build.sh: tmux is required but could not be installed automatically.
+Install tmux, then rerun this build:
+  macOS:  brew install tmux
+  Debian/Ubuntu:  sudo apt-get install tmux
+  Fedora/RHEL:  sudo dnf install tmux
+  Arch:  sudo pacman -S tmux
+EOF
+    exit 1
+  fi
+
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "build.sh: tmux installation finished but tmux is still not on PATH" >&2
+    exit 1
+  fi
+  echo "build.sh: tmux installed"
+}
+
+ensure_tmux
+
 if command -v go >/dev/null 2>&1; then
   echo "build.sh: go found on PATH, building from source"
   mkdir -p "${BIN_DIR}"

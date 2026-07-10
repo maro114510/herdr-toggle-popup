@@ -31,7 +31,7 @@ func Run(_ []string, stdout io.Writer, stderr io.Writer) int {
 	}
 
 	store := state.NewStore(stateDir)
-	if err := store.DeleteByPaneID(paneID); err != nil {
+	if err := store.DeleteVisibleByPaneID(paneID); err != nil {
 		_, _ = fmt.Fprintf(stderr, "on-pane-closed: %v\n", err)
 		return 1
 	}
