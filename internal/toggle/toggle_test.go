@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -442,6 +443,53 @@ func TestOpenFailurePrintsErrorAndDoesNotWriteRegistry(t *testing.T) {
 	if env.popupsFileExists() {
 		t.Error("popups.json exists, want none")
 	}
+}
+
+func TestConcurrentSameEntrypointOpenIsSerializedAcrossProcesses(t *testing.T) {
+	env := setupEnv(t)
+	t.Setenv("STUB_HERDR_OPEN_DELAY_SECONDS", "0.2")
+
+	first := startToggleHelper(t)
+	second := startToggleHelper(t)
+
+	if err := first.Wait(); err != nil {
+		t.Fatalf("first helper: %v", err)
+	}
+	if err := second.Wait(); err != nil {
+		t.Fatalf("second helper: %v", err)
+	}
+
+	if got := strings.Count(env.log(t), callPluginPaneOpen); got != 1 {
+		t.Fatalf("plugin pane open calls = %d, want 1; log:\n%s", got, env.log(t))
+	}
+}
+
+func startToggleHelper(t *testing.T) *exec.Cmd {
+	t.Helper()
+
+	//nolint:gosec // test helper intentionally re-execs this trusted test binary.
+	cmd := exec.Command(os.Args[0], "-test.run=TestToggle_HelperProcess", "--", testEntrypointShell)
+	cmd.Env = append(os.Environ(), "GO_WANT_TOGGLE_HELPER_PROCESS=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd
+}
+
+//nolint:paralleltest // helper may os.Exit and is only run in a subprocess.
+func TestToggle_HelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_TOGGLE_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	if len(os.Args) < 2 {
+		t.Fatalf("helper args = %v", os.Args)
+	}
+	code, stderr := invoke(os.Args[len(os.Args)-1])
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	os.Exit(0)
 }
 
 func TestMissingCwdFailsWithoutCallingOpen(t *testing.T) {

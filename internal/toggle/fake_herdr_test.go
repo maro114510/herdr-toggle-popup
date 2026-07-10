@@ -31,6 +31,9 @@ case "$1 $2" in
           printf 'stub open failure\n' >&2
           exit "$exit_code"
         fi
+        if [ -n "${STUB_HERDR_OPEN_DELAY_SECONDS:-}" ]; then
+          sleep "$STUB_HERDR_OPEN_DELAY_SECONDS"
+        fi
         pane_id="${STUB_HERDR_OPEN_PANE_ID:-new-pane-1}"
         printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s"}}}}\n' "$pane_id"
         ;;
