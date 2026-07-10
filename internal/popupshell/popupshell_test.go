@@ -4,201 +4,191 @@ import (
 	"bytes"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
-	"strings"
 	"testing"
 )
 
-// Test list (ported from tests/popup-shell.bats, plus the argv/env-plumbing this Go port adds
-// its own seam for):
+// Test list:
 //
-// - resolves $SHELL when set, execs it with argv=[shell] and the inherited environment
-// - defaults to /bin/zsh when $SHELL is unset
-// - a lookup failure (shell not found) is reported to stderr, exec is never attempted
-// - an exec failure is reported to stderr, non-zero exit
-// - end-to-end: execs $SHELL, replacing the process (same PID, no Go parent remains)
-// - end-to-end: execs /bin/zsh when $SHELL is unset
+// - workspace scope: execs tmux new-session -A with a stable session name derived from
+//   workspace:<workspace_id>:<entrypoint>, starting in the focused pane cwd
+// - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
+// - $SHELL unset: defaults the tmux command to /bin/zsh
+// - missing tmux: reports a clear error and never execs
+// - missing focused cwd: reports a clear error before execing tmux
 
-const helperProcessEnvVar = "POPUPSHELL_TEST_HELPER_PROCESS"
+const (
+	configDirEnvVar = "HERDR_PLUGIN_CONFIG_DIR"
+	contextEnvVar   = "HERDR_PLUGIN_CONTEXT_JSON"
+	workspaceID     = "ws1"
+	focusedCwd      = "/focused/cwd"
+	testShellPath   = "/opt/homebrew/bin/fish"
+)
 
-func TestRunResolvesShellFromEnv(t *testing.T) {
-	t.Setenv(shellEnvVar, "/opt/homebrew/bin/fish")
+type execCall struct {
+	argv0 string
+	argv  []string
+	envv  []string
+}
 
-	var stderr bytes.Buffer
-	var gotArgv0 string
-	var gotArgv, gotEnvv []string
+func setupEnv(t *testing.T) string {
+	t.Helper()
 
-	lookPath := func(file string) (string, error) {
-		if file != "/opt/homebrew/bin/fish" {
-			t.Errorf("lookPath called with %q, want %q", file, "/opt/homebrew/bin/fish")
-		}
-		return "/resolved/fish", nil
+	configDir := filepath.Join(t.TempDir(), "plugin-config")
+	t.Setenv(configDirEnvVar, configDir)
+	t.Setenv(workspaceIDEnvVar, workspaceID)
+	t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd"}`)
+	t.Setenv(shellEnvVar, testShellPath)
+	return configDir
+}
+
+func writeConfig(t *testing.T, dir, content string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
 	}
-	exec := func(argv0 string, argv, envv []string) error {
-		gotArgv0, gotArgv, gotEnvv = argv0, argv, envv
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func successfulLookPath(t *testing.T) lookPathFunc {
+	t.Helper()
+	return func(file string) (string, error) {
+		switch file {
+		case tmuxBin:
+			return "/resolved/tmux", nil
+		case testShellPath:
+			return testShellPath, nil
+		case defaultShell:
+			return defaultShell, nil
+		default:
+			t.Fatalf("unexpected lookPath(%q)", file)
+			return "", nil
+		}
+	}
+}
+
+func captureExec(call *execCall) execFunc {
+	return func(argv0 string, argv, envv []string) error {
+		call.argv0 = argv0
+		call.argv = slices.Clone(argv)
+		call.envv = slices.Clone(envv)
 		return nil
 	}
+}
 
-	code := run(&stderr, lookPath, exec)
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
+	setupEnv(t)
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
 
 	if code != 0 {
-		t.Errorf("exit code = %d, want 0", code)
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	if gotArgv0 != "/resolved/fish" {
-		t.Errorf("argv0 = %q, want %q", gotArgv0, "/resolved/fish")
+	wantArgv := []string{
+		tmuxBin, "new-session", "-A",
+		"-s", sessionName("workspace:ws1:shell"),
+		"-c", focusedCwd,
+		testShellPath,
 	}
-	if want := []string{"/opt/homebrew/bin/fish"}; !slices.Equal(gotArgv, want) {
-		t.Errorf("argv = %v, want %v", gotArgv, want)
+	if call.argv0 != "/resolved/tmux" {
+		t.Errorf("argv0 = %q, want /resolved/tmux", call.argv0)
 	}
-	if !slices.Equal(gotEnvv, os.Environ()) {
-		t.Errorf("envv was not the inherited environment")
+	if !slices.Equal(call.argv, wantArgv) {
+		t.Errorf("argv = %v, want %v", call.argv, wantArgv)
+	}
+	if !slices.Equal(call.envv, os.Environ()) {
+		t.Error("envv was not the inherited environment")
+	}
+}
+
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunExecsTmuxSessionForDirectoryScope(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "scope = \"directory\"\n")
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	wantSession := sessionName("directory:/focused/cwd:shell")
+	if got := call.argv[4]; got != wantSession {
+		t.Errorf("session = %q, want %q", got, wantSession)
 	}
 }
 
 func TestRunDefaultsToZshWhenShellUnset(t *testing.T) {
+	setupEnv(t)
 	t.Setenv(shellEnvVar, "")
 
 	var stderr bytes.Buffer
-	var gotFile string
-
-	lookPath := func(file string) (string, error) {
-		gotFile = file
-		return defaultShell, nil
-	}
-	exec := func(string, []string, []string) error { return nil }
-
-	code := run(&stderr, lookPath, exec)
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
 
 	if code != 0 {
-		t.Errorf("exit code = %d, want 0", code)
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	if gotFile != defaultShell {
-		t.Errorf("lookPath called with %q, want %q", gotFile, defaultShell)
+	if got := call.argv[len(call.argv)-1]; got != defaultShell {
+		t.Errorf("shell argv = %q, want %q", got, defaultShell)
 	}
 }
 
-func TestRunLookPathFailureReportsErrorAndNeverExecs(t *testing.T) {
-	t.Setenv(shellEnvVar, "/no/such/shell")
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunTmuxLookPathFailureReportsErrorAndNeverExecs(t *testing.T) {
+	setupEnv(t)
 
 	var stderr bytes.Buffer
 	execCalled := false
-
-	lookPath := func(string) (string, error) { return "", errors.New("no such file or directory") }
-	exec := func(string, []string, []string) error {
+	lookPath := func(file string) (string, error) {
+		if file == tmuxBin {
+			return "", errors.New("tmux not found")
+		}
+		return file, nil
+	}
+	execProcess := func(string, []string, []string) error {
 		execCalled = true
 		return nil
 	}
 
-	code := run(&stderr, lookPath, exec)
+	code := run([]string{defaultEntrypoint}, &stderr, lookPath, execProcess)
 
 	if code == 0 {
-		t.Errorf("exit code = 0, want non-zero")
+		t.Fatal("exit code = 0, want non-zero")
 	}
 	if execCalled {
-		t.Error("exec was called despite a lookPath failure")
+		t.Error("exec was called despite a tmux lookup failure")
 	}
 	if stderr.Len() == 0 {
 		t.Error("stderr is empty, want an error message")
 	}
 }
 
-func TestRunExecFailureReportsError(t *testing.T) {
-	t.Setenv(shellEnvVar, "/bin/zsh")
+func TestRunMissingFocusedCwdReportsErrorBeforeExec(t *testing.T) {
+	setupEnv(t)
+	t.Setenv(contextEnvVar, `{"workspace_id":"ws1"}`)
 
 	var stderr bytes.Buffer
-
-	lookPath := func(file string) (string, error) { return file, nil }
-	exec := func(string, []string, []string) error { return errors.New("permission denied") }
-
-	code := run(&stderr, lookPath, exec)
+	execCalled := false
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), func(string, []string, []string) error {
+		execCalled = true
+		return nil
+	})
 
 	if code == 0 {
-		t.Errorf("exit code = 0, want non-zero")
+		t.Fatal("exit code = 0, want non-zero")
+	}
+	if execCalled {
+		t.Error("exec was called despite missing focused cwd")
 	}
 	if stderr.Len() == 0 {
 		t.Error("stderr is empty, want an error message")
 	}
-}
-
-// TestRunReplacesProcessWithFixtureShell re-execs the test binary as a helper process with
-// SHELL pointing at a stub script, the same way tests/popup-shell.bats proves the process was
-// replaced in place: the stub writes its own PID to a file, which must equal the PID of the
-// process this test spawned — proof that popup-shell.Run() became the stub rather than forking
-// a child under a surviving Go parent.
-func TestRunReplacesProcessWithFixtureShell(t *testing.T) {
-	t.Parallel()
-
-	if os.Getenv(helperProcessEnvVar) == "1" {
-		os.Exit(Run(nil, os.Stdout, os.Stderr))
-	}
-
-	dir := t.TempDir()
-	stub := filepath.Join(dir, "stub-shell")
-	pidFile := filepath.Join(dir, "pid")
-	script := "#!/usr/bin/env bash\necho $$ > " + strconv.Quote(pidFile) + "\n"
-	if err := os.WriteFile(stub, []byte(script), 0o700); err != nil { //nolint:gosec // test fixture must be executable.
-		t.Fatal(err)
-	}
-
-	//nolint:gosec // re-execs this same test binary (os.Args[0]) with a fixed flag, the standard Go self-exec test pattern.
-	cmd := exec.Command(os.Args[0], "-test.run=^TestRunReplacesProcessWithFixtureShell$")
-	cmd.Env = append(os.Environ(), helperProcessEnvVar+"=1", shellEnvVar+"="+stub)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("helper process failed: %v (stderr: %s)", err, stderr.String())
-	}
-
-	gotPID, err := os.ReadFile(pidFile) //nolint:gosec // pidFile is a path this test built under t.TempDir().
-	if err != nil {
-		t.Fatalf("reading pid file: %v", err)
-	}
-	if want := strconv.Itoa(cmd.Process.Pid); strings.TrimSpace(string(gotPID)) != want {
-		t.Errorf("stub ran with pid %s, want %s (the spawned process's own pid)", strings.TrimSpace(string(gotPID)), want)
-	}
-}
-
-// TestRunExecsRealZshWhenShellUnset mirrors tests/popup-shell.bats' "execs /bin/zsh when SHELL
-// is unset" case.
-func TestRunExecsRealZshWhenShellUnset(t *testing.T) {
-	t.Parallel()
-
-	if _, err := exec.LookPath(defaultShell); err != nil {
-		t.Skip("/bin/zsh not available on this system")
-	}
-
-	if os.Getenv(helperProcessEnvVar) == "1" {
-		os.Exit(Run(nil, os.Stdout, os.Stderr))
-	}
-
-	//nolint:gosec // re-execs this same test binary (os.Args[0]) with a fixed flag, the standard Go self-exec test pattern.
-	cmd := exec.Command(os.Args[0], "-test.run=^TestRunExecsRealZshWhenShellUnset$")
-	cmd.Env = append(os.Environ(), helperProcessEnvVar+"=1")
-	cmd.Env = removeEnvVar(cmd.Env, shellEnvVar)
-	cmd.Stdin = strings.NewReader("echo ZSHV=$ZSH_VERSION\n")
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("helper process failed: %v (stderr: %s)", err, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "ZSHV=") {
-		t.Errorf("stdout = %q, want it to contain %q", stdout.String(), "ZSHV=")
-	}
-}
-
-func removeEnvVar(env []string, key string) []string {
-	prefix := key + "="
-	filtered := env[:0]
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, prefix) {
-			filtered = append(filtered, kv)
-		}
-	}
-	return filtered
 }

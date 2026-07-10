@@ -1,7 +1,6 @@
 // Package toggle implements the `toggle` subcommand: open-or-toggle logic, scope keying,
-// hide-by-zooming-a-sibling (so the popup stays a floating overlay and its shell session
-// survives), stale-entry recovery, force modes, and best-effort resizing. It is a
-// behavior-equivalent port of toggle.sh, composing the state, config, and herdr packages.
+// close-to-hide behavior backed by a tmux session, stale-entry recovery, force modes, and
+// best-effort resizing. It composes the state, config, and herdr packages.
 package toggle
 
 import (
@@ -120,6 +119,9 @@ func runToggle(
 	}
 
 	if ok {
+		if entry.Hidden != nil && *entry.Hidden {
+			return openPopup(store, client, cfg, stderr, key, entrypoint, scopeMode, workspaceID)
+		}
 		if client.PaneExists(entry.PaneID) {
 			return toggleLivePane(store, client, stderr, key, entry)
 		}
@@ -137,30 +139,22 @@ func runToggle(
 	return openPopup(store, client, cfg, stderr, key, entrypoint, scopeMode, workspaceID)
 }
 
-// toggleLivePane hides a visible popup or re-shows a hidden one, in place. On failure (no
-// sibling to hide behind, or the herdr call fails) it leaves the popup unchanged rather than
-// risk orphaning a live session, and reports that to stderr. Always exits 0: the popup is
-// alive either way.
+// toggleLivePane hides a visible popup by marking it hidden and closing the Herdr pane. The
+// shell session survives in tmux; the Herdr pane must disappear completely so no border or zoom
+// indicator remains. On close failure, the hidden flag is rolled back and the live pane is left
+// unchanged.
 func toggleLivePane(store *state.Store, client *herdr.Client, stderr io.Writer, key string, entry state.Entry) int {
-	hidden := entry.Hidden != nil && *entry.Hidden
-
-	var succeeded bool
-	if hidden {
-		succeeded = client.PluginPaneFocus(entry.PaneID) == nil
-	} else {
-		if sibling := client.TabSibling(entry.PaneID); sibling != "" {
-			succeeded = client.ZoomOn(sibling) == nil
-		}
-	}
-
-	if !succeeded {
-		_, _ = fmt.Fprintf(stderr, "toggle: could not toggle the popup (pane %s); leaving it unchanged\n", entry.PaneID)
-		return 0
-	}
-
-	if err := store.SetHidden(key, !hidden); err != nil {
+	if err := store.SetHidden(key, true); err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
 		return 1
+	}
+	if err := client.PluginPaneClose(entry.PaneID); err != nil {
+		if rollbackErr := store.SetHidden(key, false); rollbackErr != nil {
+			_, _ = fmt.Fprintf(stderr, "toggle: %v\n", rollbackErr)
+			return 1
+		}
+		_, _ = fmt.Fprintf(stderr, "toggle: could not hide the popup (pane %s); leaving it visible\n", entry.PaneID)
+		return 0
 	}
 	return 0
 }

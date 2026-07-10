@@ -1,19 +1,31 @@
-// Package popupshell implements the `popup-shell` subcommand: a behavior-equivalent port of
-// popup-shell.sh. It replaces the current process with the user's shell so the popup pane runs
-// the shell directly rather than a Go parent process.
+// Package popupshell implements the `popup-shell` subcommand. The Herdr popup pane is only a
+// transient tmux client; the actual shell lives in a named tmux session so closing the Herdr pane
+// removes all UI chrome without killing the shell session.
 package popupshell
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/maro114510/herdr-toggle-popup/internal/config"
+	"github.com/maro114510/herdr-toggle-popup/internal/herdr"
 )
 
 const (
-	shellEnvVar  = "SHELL"
-	defaultShell = "/bin/zsh"
+	shellEnvVar       = "SHELL"
+	defaultShell      = "/bin/zsh"
+	defaultEntrypoint = "shell"
+	tmuxBin           = "tmux"
+	scopeDirectory    = "directory"
+	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
+	sessionPrefix     = "herdr-toggle-popup-"
+	sessionHashBytes  = 16
 )
 
 type (
@@ -22,28 +34,67 @@ type (
 )
 
 // Run implements the `popup-shell` subcommand. It replaces the current process with
-// ${SHELL:-/bin/zsh}, preserving environment and inheriting stdio. If the exec fails, it
+// `tmux new-session -A`, preserving environment and inheriting stdio. If the exec fails, it
 // prints the error to stderr and returns non-zero; on success it never returns.
-func Run(_ []string, stdout, stderr io.Writer) int {
+func Run(args []string, stdout, stderr io.Writer) int {
 	_ = stdout
-	return run(stderr, exec.LookPath, syscall.Exec)
+	return run(args, stderr, exec.LookPath, syscall.Exec)
 }
 
-func run(stderr io.Writer, lookPath lookPathFunc, execProcess execFunc) int {
-	shell := os.Getenv(shellEnvVar)
-	if shell == "" {
-		shell = defaultShell
+func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess execFunc) int {
+	entrypoint := defaultEntrypoint
+	if len(args) > 0 && args[0] != "" {
+		entrypoint = args[0]
 	}
 
-	path, err := lookPath(shell)
+	sessionKey, cwd, err := tmuxSessionKey(config.Load().Scope, entrypoint)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1
 	}
 
-	if err := execProcess(path, []string{shell}, os.Environ()); err != nil {
+	tmuxPath, err := lookPath(tmuxBin)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "popup-shell: tmux is required but was not found on PATH: %v\n", err)
+		return 1
+	}
+
+	shell := os.Getenv(shellEnvVar)
+	if shell == "" {
+		shell = defaultShell
+	}
+	shellPath, err := lookPath(shell)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
+		return 1
+	}
+
+	argv := []string{tmuxBin, "new-session", "-A", "-s", sessionName(sessionKey), "-c", cwd, shellPath}
+	if err := execProcess(tmuxPath, argv, os.Environ()); err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func tmuxSessionKey(scopeMode, entrypoint string) (key, cwd string, err error) {
+	cwd = herdr.ContextField("focused_pane_cwd")
+	if cwd == "" {
+		return "", "", errors.New("could not determine the focused pane's cwd")
+	}
+
+	if scopeMode == scopeDirectory {
+		return fmt.Sprintf("directory:%s:%s", cwd, entrypoint), cwd, nil
+	}
+
+	workspaceID := os.Getenv(workspaceIDEnvVar)
+	if workspaceID == "" {
+		return "", "", fmt.Errorf("%s must be set", workspaceIDEnvVar)
+	}
+	return fmt.Sprintf("workspace:%s:%s", workspaceID, entrypoint), cwd, nil
+}
+
+func sessionName(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return sessionPrefix + hex.EncodeToString(sum[:sessionHashBytes])
 }
