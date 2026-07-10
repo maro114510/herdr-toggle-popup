@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,7 @@ import (
 // - workspace scope: execs tmux new-session -A with a stable session name derived from
 //   workspace:<workspace_id>:<entrypoint>, starting in the focused pane cwd
 // - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
+// - tmux status line is disabled before attaching to the popup session
 // - $SHELL unset: defaults the tmux command to /bin/zsh
 // - missing tmux: reports a clear error and never execs
 // - missing focused cwd: reports a clear error before execing tmux
@@ -24,6 +26,8 @@ const (
 	workspaceID     = "ws1"
 	focusedCwd      = "/focused/cwd"
 	testShellPath   = "/opt/homebrew/bin/fish"
+	testShellBin    = "/resolved/sh"
+	testTmuxBin     = "/resolved/tmux"
 )
 
 type execCall struct {
@@ -57,8 +61,10 @@ func successfulLookPath(t *testing.T) lookPathFunc {
 	t.Helper()
 	return func(file string) (string, error) {
 		switch file {
+		case shellBin:
+			return testShellBin, nil
 		case tmuxBin:
-			return "/resolved/tmux", nil
+			return testTmuxBin, nil
 		case testShellPath:
 			return testShellPath, nil
 		case defaultShell:
@@ -67,6 +73,13 @@ func successfulLookPath(t *testing.T) lookPathFunc {
 			t.Fatalf("unexpected lookPath(%q)", file)
 			return "", nil
 		}
+	}
+}
+
+func wantTmuxWrapperArgv(session string, shell string) []string {
+	return []string{
+		shellBin, "-c", tmuxAttachScript,
+		"popup-shell", session, focusedCwd, shell, testTmuxBin,
 	}
 }
 
@@ -90,14 +103,9 @@ func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	wantArgv := []string{
-		tmuxBin, "new-session", "-A",
-		"-s", sessionName("workspace:ws1:shell"),
-		"-c", focusedCwd,
-		testShellPath,
-	}
-	if call.argv0 != "/resolved/tmux" {
-		t.Errorf("argv0 = %q, want /resolved/tmux", call.argv0)
+	wantArgv := wantTmuxWrapperArgv(sessionName("workspace:ws1:shell"), testShellPath)
+	if call.argv0 != testShellBin {
+		t.Errorf("argv0 = %q, want %q", call.argv0, testShellBin)
 	}
 	if !slices.Equal(call.argv, wantArgv) {
 		t.Errorf("argv = %v, want %v", call.argv, wantArgv)
@@ -125,6 +133,17 @@ func TestRunExecsTmuxSessionForDirectoryScope(t *testing.T) {
 	}
 }
 
+func TestRunDisablesTmuxStatusBeforeAttaching(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(tmuxAttachScript, "set-option -t \"$1\" status off") {
+		t.Fatalf("tmux attach script = %q, want it to disable the target session status", tmuxAttachScript)
+	}
+	if !strings.Contains(tmuxAttachScript, "attach-session -t \"$1\"") {
+		t.Fatalf("tmux attach script = %q, want it to attach after configuring the session", tmuxAttachScript)
+	}
+}
+
 func TestRunDefaultsToZshWhenShellUnset(t *testing.T) {
 	setupEnv(t)
 	t.Setenv(shellEnvVar, "")
@@ -136,7 +155,7 @@ func TestRunDefaultsToZshWhenShellUnset(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	if got := call.argv[len(call.argv)-1]; got != defaultShell {
+	if got := call.argv[6]; got != defaultShell {
 		t.Errorf("shell argv = %q, want %q", got, defaultShell)
 	}
 }
@@ -165,6 +184,23 @@ func TestRunTmuxLookPathFailureReportsErrorAndNeverExecs(t *testing.T) {
 	}
 	if execCalled {
 		t.Error("exec was called despite a tmux lookup failure")
+	}
+	if stderr.Len() == 0 {
+		t.Error("stderr is empty, want an error message")
+	}
+}
+
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunExecFailureReportsError(t *testing.T) {
+	setupEnv(t)
+
+	var stderr bytes.Buffer
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), func(string, []string, []string) error {
+		return errors.New("exec failed")
+	})
+
+	if code == 0 {
+		t.Fatal("exit code = 0, want non-zero")
 	}
 	if stderr.Len() == 0 {
 		t.Error("stderr is empty, want an error message")
