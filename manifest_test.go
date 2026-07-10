@@ -130,8 +130,7 @@ func TestManifestToggleShellAction(t *testing.T) {
 	}
 }
 
-// TestManifestShellPane ports "manifest declares the shell pane" from tests/manifest.bats,
-// updated to expect the Go binary instead of bash.
+// TestManifestShellPane ports "manifest declares the shell pane" from tests/manifest.bats.
 func TestManifestShellPane(t *testing.T) {
 	t.Parallel()
 
@@ -150,7 +149,7 @@ func TestManifestShellPane(t *testing.T) {
 	if p.Placement != "overlay" {
 		t.Errorf("Placement = %q, want %q", p.Placement, "overlay")
 	}
-	wantCommand := []string{toggleBinary, "popup-shell"}
+	wantCommand := []string{"sh", "-lc", `exec "${SHELL:-/bin/zsh}"`}
 	if !reflect.DeepEqual(p.Command, wantCommand) {
 		t.Errorf("Command = %v, want %v", p.Command, wantCommand)
 	}
