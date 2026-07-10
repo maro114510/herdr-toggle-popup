@@ -10,7 +10,15 @@ A [Herdr](https://herdr.dev) plugin that toggles an overlay popup shell with one
 herdr plugin install maro114510/herdr-toggle-popup
 ```
 
-Install runs a confirmed build step: herdr builds `./bin/toggle-popup` from source if you have a Go toolchain, otherwise it downloads and checksum-verifies the matching prebuilt binary from GitHub Releases.
+This plugin requires `tmux` to keep the popup shell session alive while the Herdr popup pane is hidden.
+Install runs a confirmed build step that verifies `tmux` is available and tries to install it when possible (`brew install tmux` on macOS/Homebrew, or root package-manager installs on Linux).
+If automatic installation is not possible, install tmux yourself and rerun the plugin install:
+
+```bash
+brew install tmux              # macOS / Homebrew
+```
+
+The same build step builds `./bin/toggle-popup` from source if you have a Go toolchain, otherwise it downloads and checksum-verifies the matching prebuilt binary from GitHub Releases.
 
 For local development, link your checkout instead, then build the binary yourself:
 
@@ -18,6 +26,8 @@ For local development, link your checkout instead, then build the binary yoursel
 herdr plugin link .
 sh scripts/build.sh   # or: go build -o bin/toggle-popup .
 ```
+
+`sh scripts/build.sh` also checks the `tmux` dependency for local development.
 
 ## Binding a key
 
@@ -42,6 +52,14 @@ scope = "directory"
 ```
 
 With this set, toggling the same entrypoint from the same directory in any workspace opens or closes the same popup; toggling it from a different directory opens a separate one.
+
+## Session behavior
+
+Pressing the toggle key while the popup is visible closes the Herdr popup pane completely, so no border or zoom indicator remains on screen.
+The shell itself keeps running inside a named `tmux` session derived from the popup scope and entrypoint.
+Pressing the toggle key again opens a fresh Herdr overlay pane and attaches it to that same tmux session.
+
+If you want to intentionally discard a saved popup shell session, kill the matching tmux session manually with `tmux ls` and `tmux kill-session -t <session>`.
 
 ## Configuring popup size
 

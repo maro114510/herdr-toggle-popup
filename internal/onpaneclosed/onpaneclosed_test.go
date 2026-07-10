@@ -81,6 +81,31 @@ func TestDeletesEntryMatchingPaneID(t *testing.T) {
 	}
 }
 
+func TestLeavesHiddenEntryMatchingPaneIDUntouched(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), "plugin-state")
+	t.Setenv(stateDirEnvVar, stateDir)
+	t.Setenv(paneIDEnvVar, paneWs1)
+	store := state.NewStore(stateDir)
+	setEntry(t, store, keyWs1, paneWs1)
+	if err := store.SetHidden(keyWs1, true); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(nil, &stdout, &stderr)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	entry, ok, err := store.Get(keyWs1)
+	if err != nil || !ok {
+		t.Fatalf("entry %q missing or errored: ok=%v err=%v", keyWs1, ok, err)
+	}
+	if entry.Hidden == nil || !*entry.Hidden {
+		t.Errorf("hidden = %v, want true", entry.Hidden)
+	}
+}
+
 func TestLeavesEntriesWithDifferentPaneIDUntouched(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "plugin-state")
 	t.Setenv(stateDirEnvVar, stateDir)
