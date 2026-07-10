@@ -21,12 +21,19 @@ const (
 	shellEnvVar       = "SHELL"
 	defaultShell      = "/bin/zsh"
 	defaultEntrypoint = "shell"
+	shellBin          = "sh"
 	tmuxBin           = "tmux"
 	scopeDirectory    = "directory"
 	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
 	sessionPrefix     = "herdr-toggle-popup-"
 	sessionHashBytes  = 16
 )
+
+const tmuxAttachScript = `if ! "$4" -f /dev/null has-session -t "$1" 2>/dev/null; then
+  "$4" -f /dev/null new-session -d -s "$1" -c "$2" "$3"
+fi
+"$4" -f /dev/null set-option -t "$1" status off
+exec "$4" -f /dev/null attach-session -t "$1"`
 
 type (
 	lookPathFunc func(file string) (string, error)
@@ -53,6 +60,12 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 		return 1
 	}
 
+	shPath, err := lookPath(shellBin)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
+		return 1
+	}
+
 	tmuxPath, err := lookPath(tmuxBin)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: tmux is required but was not found on PATH: %v\n", err)
@@ -69,8 +82,8 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 		return 1
 	}
 
-	argv := []string{tmuxBin, "new-session", "-A", "-s", sessionName(sessionKey), "-c", cwd, shellPath}
-	if err := execProcess(tmuxPath, argv, os.Environ()); err != nil {
+	argv := []string{shellBin, "-c", tmuxAttachScript, "popup-shell", sessionName(sessionKey), cwd, shellPath, tmuxPath}
+	if err := execProcess(shPath, argv, os.Environ()); err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1
 	}

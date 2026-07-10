@@ -58,6 +58,7 @@ With this set, toggling the same entrypoint from the same directory in any works
 Pressing the toggle key while the popup is visible closes the Herdr popup pane completely, so no border or zoom indicator remains on screen.
 The shell itself keeps running inside a named `tmux` session derived from the popup scope and entrypoint.
 Pressing the toggle key again opens a fresh Herdr overlay pane and attaches it to that same tmux session.
+The popup client disables tmux's status line before attaching, so the popup content is not framed by tmux UI chrome.
 
 If you want to intentionally discard a saved popup shell session, kill the matching tmux session manually with `tmux ls` and `tmux kill-session -t <session>`.
 
