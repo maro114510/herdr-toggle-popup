@@ -24,6 +24,7 @@ const (
 // PluginPaneOpen
 // - success: passes plugin, entrypoint, placement, cwd, focus (no workspace/target-pane) and returns pane_id
 // - non-zero exit: returns an error that includes the captured output
+// - timeout: returns a clear timeout error when the herdr subprocess exceeds the command bound
 // - malformed JSON on a zero exit: returns an error
 // - missing pane_id on a zero exit: returns an error
 //
@@ -92,7 +93,7 @@ func TestNewClient_FallsBackToPathHerdr(t *testing.T) {
 	logPath := newFakeHerdrOnPath(t)
 
 	c := NewClient()
-	if !c.PaneExists(testPaneID) {
+	if !c.PaneExists(t.Context(), testPaneID) {
 		t.Fatal("PaneExists() = false, want true via PATH-resolved herdr")
 	}
 	if got := readLog(t, logPath); got != "pane get pane-1\n" {
@@ -105,7 +106,7 @@ func TestPluginPaneOpen_Success(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_PANE_ID", "pane-42")
 
 	c := NewClient()
-	paneID, err := c.PluginPaneOpen(testPluginID, testEntrypoint, testCwd)
+	paneID, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err != nil {
 		t.Fatalf("PluginPaneOpen() error = %v", err)
 	}
@@ -125,7 +126,7 @@ func TestPluginPaneOpen_NonZeroExit(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_EXIT", "1")
 
 	c := NewClient()
-	_, err := c.PluginPaneOpen(testPluginID, testEntrypoint, testCwd)
+	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err == nil {
 		t.Fatal("PluginPaneOpen() error = nil, want error")
 	}
@@ -134,12 +135,29 @@ func TestPluginPaneOpen_NonZeroExit(t *testing.T) {
 	}
 }
 
+func TestPluginPaneOpen_Timeout(t *testing.T) {
+	newFakeHerdr(t)
+	t.Setenv(commandTimeoutEnvVar, "50ms")
+	t.Setenv("FAKE_HERDR_OPEN_DELAY_SECONDS", "0.2")
+
+	c := NewClient()
+	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
+	if err == nil {
+		t.Fatal("PluginPaneOpen() error = nil, want timeout error")
+	}
+	for _, want := range []string{"herdr plugin pane open", "context deadline exceeded", "50ms"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
 func TestPluginPaneOpen_MalformedJSON(t *testing.T) {
 	newFakeHerdr(t)
 	t.Setenv("FAKE_HERDR_OPEN_MALFORMED", "1")
 
 	c := NewClient()
-	_, err := c.PluginPaneOpen(testPluginID, testEntrypoint, testCwd)
+	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err == nil {
 		t.Fatal("PluginPaneOpen() error = nil, want error on malformed JSON")
 	}
@@ -150,7 +168,7 @@ func TestPluginPaneOpen_MissingPaneID(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_MISSING_PANE_ID", "1")
 
 	c := NewClient()
-	_, err := c.PluginPaneOpen(testPluginID, testEntrypoint, testCwd)
+	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err == nil {
 		t.Fatal("PluginPaneOpen() error = nil, want error on missing pane_id")
 	}
@@ -161,7 +179,7 @@ func TestPaneExists_True(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	if !c.PaneExists(testPaneID) {
+	if !c.PaneExists(t.Context(), testPaneID) {
 		t.Error("PaneExists() = false, want true")
 	}
 	if got := readLog(t, logPath); got != "pane get pane-1\n" {
@@ -174,7 +192,7 @@ func TestPaneExists_False(t *testing.T) {
 	t.Setenv("FAKE_HERDR_GET_EXIT", "1")
 
 	c := NewClient()
-	if c.PaneExists(testPaneID) {
+	if c.PaneExists(t.Context(), testPaneID) {
 		t.Error("PaneExists() = true, want false on non-zero exit")
 	}
 }
@@ -184,7 +202,7 @@ func TestTabSibling_ReturnsSibling(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	sibling := c.TabSibling(testPaneID)
+	sibling := c.TabSibling(t.Context(), testPaneID)
 	if sibling != "pane-sibling" {
 		t.Errorf("TabSibling() = %q, want %q", sibling, "pane-sibling")
 	}
@@ -198,7 +216,7 @@ func TestTabSibling_Solo(t *testing.T) {
 	t.Setenv("FAKE_HERDR_LAYOUT_SOLO", "1")
 
 	c := NewClient()
-	if sibling := c.TabSibling(testPaneID); sibling != "" {
+	if sibling := c.TabSibling(t.Context(), testPaneID); sibling != "" {
 		t.Errorf("TabSibling() = %q, want empty when alone in its tab", sibling)
 	}
 }
@@ -208,7 +226,7 @@ func TestTabSibling_Error(t *testing.T) {
 	t.Setenv("FAKE_HERDR_LAYOUT_EXIT", "1")
 
 	c := NewClient()
-	if sibling := c.TabSibling(testPaneID); sibling != "" {
+	if sibling := c.TabSibling(t.Context(), testPaneID); sibling != "" {
 		t.Errorf("TabSibling() = %q, want empty on error", sibling)
 	}
 }
@@ -218,7 +236,7 @@ func TestTabSibling_MalformedJSON(t *testing.T) {
 	t.Setenv("FAKE_HERDR_LAYOUT_MALFORMED", "1")
 
 	c := NewClient()
-	if sibling := c.TabSibling(testPaneID); sibling != "" {
+	if sibling := c.TabSibling(t.Context(), testPaneID); sibling != "" {
 		t.Errorf("TabSibling() = %q, want empty on malformed JSON", sibling)
 	}
 }
@@ -228,7 +246,7 @@ func TestZoomOn_Success(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	if err := c.ZoomOn(testPaneID); err != nil {
+	if err := c.ZoomOn(t.Context(), testPaneID); err != nil {
 		t.Fatalf("ZoomOn() error = %v", err)
 	}
 	if got := readLog(t, logPath); got != "pane zoom pane-1 --on\n" {
@@ -241,7 +259,7 @@ func TestZoomOn_Failure(t *testing.T) {
 	t.Setenv("FAKE_HERDR_ZOOM_EXIT", "1")
 
 	c := NewClient()
-	if err := c.ZoomOn(testPaneID); err == nil {
+	if err := c.ZoomOn(t.Context(), testPaneID); err == nil {
 		t.Fatal("ZoomOn() error = nil, want error on non-zero exit")
 	}
 }
@@ -251,7 +269,7 @@ func TestPluginPaneFocus_Success(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	if err := c.PluginPaneFocus(testPaneID); err != nil {
+	if err := c.PluginPaneFocus(t.Context(), testPaneID); err != nil {
 		t.Fatalf("PluginPaneFocus() error = %v", err)
 	}
 	if got := readLog(t, logPath); got != "plugin pane focus pane-1\n" {
@@ -264,7 +282,7 @@ func TestPluginPaneFocus_Failure(t *testing.T) {
 	t.Setenv("FAKE_HERDR_FOCUS_EXIT", "1")
 
 	c := NewClient()
-	if err := c.PluginPaneFocus(testPaneID); err == nil {
+	if err := c.PluginPaneFocus(t.Context(), testPaneID); err == nil {
 		t.Fatal("PluginPaneFocus() error = nil, want error on non-zero exit")
 	}
 }
@@ -274,7 +292,7 @@ func TestPaneResize_Success(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	if err := c.PaneResize(testPaneID, "right", "0.5"); err != nil {
+	if err := c.PaneResize(t.Context(), testPaneID, "right", "0.5"); err != nil {
 		t.Fatalf("PaneResize() error = %v", err)
 	}
 	want := "pane resize --direction right --amount 0.5 --pane pane-1\n"
@@ -288,7 +306,7 @@ func TestPaneResize_Failure(t *testing.T) {
 	t.Setenv("FAKE_HERDR_RESIZE_EXIT", "1")
 
 	c := NewClient()
-	if err := c.PaneResize(testPaneID, "right", "0.5"); err == nil {
+	if err := c.PaneResize(t.Context(), testPaneID, "right", "0.5"); err == nil {
 		t.Fatal("PaneResize() error = nil, want error on non-zero exit")
 	}
 }
@@ -298,7 +316,7 @@ func TestPluginPaneClose_Success(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	if err := c.PluginPaneClose(testPaneID); err != nil {
+	if err := c.PluginPaneClose(t.Context(), testPaneID); err != nil {
 		t.Fatalf("PluginPaneClose() error = %v", err)
 	}
 	if got := readLog(t, logPath); got != "plugin pane close pane-1\n" {
@@ -311,7 +329,7 @@ func TestPluginPaneClose_Failure(t *testing.T) {
 	t.Setenv("FAKE_HERDR_CLOSE_EXIT", "1")
 
 	c := NewClient()
-	if err := c.PluginPaneClose(testPaneID); err == nil {
+	if err := c.PluginPaneClose(t.Context(), testPaneID); err == nil {
 		t.Fatal("PluginPaneClose() error = nil, want error on non-zero exit")
 	}
 }

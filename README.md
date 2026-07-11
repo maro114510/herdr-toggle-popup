@@ -77,6 +77,11 @@ The value is a space-separated list of `direction:amount:count` steps, run in or
 Tune the values by trial and error to approach the size you want, the same way you'd tune tmux's `-w`/`-h` per keybinding.
 An entrypoint with no `popup_size` key opens exactly as it does today.
 
+## Herdr command timeout
+
+Each Herdr CLI call times out after 5 seconds by default.
+Set `HERDR_COMMAND_TIMEOUT` to a Go duration such as `2s`, `500ms`, or `1m` to override it.
+
 ## License
 
 [Apache License 2.0](./LICENSE)

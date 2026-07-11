@@ -4,6 +4,7 @@
 package toggle
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -77,8 +78,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	store := state.NewStore(stateDir)
 	client := herdr.NewClient()
+	// The Herdr client applies a per-command timeout to this root invocation context.
+	ctx := context.Background()
 
-	return runToggle(store, client, cfg, stderr, entrypoint, mode, keyPrefix, cfg.Scope, workspaceID)
+	return runToggle(ctx, store, client, cfg, stderr, entrypoint, mode, keyPrefix, cfg.Scope, workspaceID)
 }
 
 // scopeKeyPrefix returns the registry key namespace for scopeMode: "workspace:<id>:" by
@@ -107,7 +110,7 @@ func focusedCwd() (string, error) {
 
 // runToggle drives the hide/show/stale-recovery/open flow for one toggle invocation.
 func runToggle(
-	store *state.Store, client *herdr.Client, cfg config.Config, stderr io.Writer,
+	ctx context.Context, store *state.Store, client *herdr.Client, cfg config.Config, stderr io.Writer,
 	entrypoint, mode, keyPrefix, scopeMode, workspaceID string,
 ) int {
 	key := keyPrefix + entrypoint
@@ -117,14 +120,14 @@ func runToggle(
 	// WithLock releases the registry lock as soon as this callback returns.
 	// Keep only the state-dependent pane operations inside; cosmetic sizing runs after unlock.
 	if err := store.WithLock(func() error {
-		code, resizePaneID = runToggleLocked(store, client, stderr, key, entrypoint, mode, keyPrefix, scopeMode, workspaceID)
+		code, resizePaneID = runToggleLocked(ctx, store, client, stderr, key, entrypoint, mode, keyPrefix, scopeMode, workspaceID)
 		return nil
 	}); err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
 		return 1
 	}
 	if code == 0 && resizePaneID != "" {
-		applySize(client, cfg, entrypoint, resizePaneID)
+		applySize(ctx, client, cfg, entrypoint, resizePaneID)
 	}
 	return code
 }
@@ -132,7 +135,7 @@ func runToggle(
 // runToggleLocked drives the state-dependent toggle flow while the registry lock is held.
 // It returns the opened pane id when post-registration sizing should run after unlock.
 func runToggleLocked(
-	store *state.Store, client *herdr.Client, stderr io.Writer,
+	ctx context.Context, store *state.Store, client *herdr.Client, stderr io.Writer,
 	key, entrypoint, mode, keyPrefix, scopeMode, workspaceID string,
 ) (int, string) {
 	entry, ok, err := store.Get(key)
@@ -143,10 +146,10 @@ func runToggleLocked(
 
 	if ok {
 		if entry.Hidden != nil && *entry.Hidden {
-			return openPopupLocked(store, client, stderr, key, entrypoint, scopeMode, workspaceID)
+			return openPopupLocked(ctx, store, client, stderr, key, entrypoint, scopeMode, workspaceID)
 		}
-		if client.PaneExists(entry.PaneID) {
-			return toggleLivePane(store, client, stderr, key, entry), ""
+		if client.PaneExists(ctx, entry.PaneID) {
+			return toggleLivePane(ctx, store, client, stderr, key, entry), ""
 		}
 		// The registered pane no longer exists; drop the stale entry and open a fresh popup.
 		if err := store.Delete(key); err != nil {
@@ -156,27 +159,27 @@ func runToggleLocked(
 	}
 
 	if mode == ModeForceClose {
-		closeOtherPopups(store, client, keyPrefix, key)
+		closeOtherPopups(ctx, store, client, keyPrefix, key)
 	}
 
-	return openPopupLocked(store, client, stderr, key, entrypoint, scopeMode, workspaceID)
+	return openPopupLocked(ctx, store, client, stderr, key, entrypoint, scopeMode, workspaceID)
 }
 
 // toggleLivePane hides a visible popup by marking it hidden and closing the Herdr pane. The
 // shell session survives in tmux; the Herdr pane must disappear completely so no border or zoom
 // indicator remains. On close failure, the hidden flag is rolled back and the live pane is left
 // unchanged.
-func toggleLivePane(store *state.Store, client *herdr.Client, stderr io.Writer, key string, entry state.Entry) int {
+func toggleLivePane(ctx context.Context, store *state.Store, client *herdr.Client, stderr io.Writer, key string, entry state.Entry) int {
 	if err := store.SetHidden(key, true); err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
 		return 1
 	}
-	if err := client.PluginPaneClose(entry.PaneID); err != nil {
+	if err := client.PluginPaneClose(ctx, entry.PaneID); err != nil {
 		if rollbackErr := store.SetHidden(key, false); rollbackErr != nil {
 			_, _ = fmt.Fprintf(stderr, "toggle: %v\n", rollbackErr)
 			return 1
 		}
-		_, _ = fmt.Fprintf(stderr, "toggle: could not hide the popup (pane %s); leaving it visible\n", entry.PaneID)
+		_, _ = fmt.Fprintf(stderr, "toggle: could not hide the popup (pane %s); leaving it visible: %v\n", entry.PaneID, err)
 		return 0
 	}
 	return 0
@@ -184,7 +187,7 @@ func toggleLivePane(store *state.Store, client *herdr.Client, stderr io.Writer, 
 
 // closeOtherPopups closes every other entrypoint's popup registered under keyPrefix (excluding
 // excludeKey), deleting each registry entry regardless of whether the close call succeeds.
-func closeOtherPopups(store *state.Store, client *herdr.Client, keyPrefix, excludeKey string) {
+func closeOtherPopups(ctx context.Context, store *state.Store, client *herdr.Client, keyPrefix, excludeKey string) {
 	reg, err := store.Read()
 	if err != nil {
 		return
@@ -193,7 +196,7 @@ func closeOtherPopups(store *state.Store, client *herdr.Client, keyPrefix, exclu
 		if otherKey == excludeKey || !strings.HasPrefix(otherKey, keyPrefix) {
 			continue
 		}
-		_ = client.PluginPaneClose(entry.PaneID)
+		_ = client.PluginPaneClose(ctx, entry.PaneID)
 		_ = store.Delete(otherKey)
 	}
 }
@@ -201,7 +204,7 @@ func closeOtherPopups(store *state.Store, client *herdr.Client, keyPrefix, exclu
 // openPopupLocked opens a new popup pane at the focused pane's cwd and registers it under key.
 // The caller must hold the registry lock, then run cosmetic sizing after unlock.
 func openPopupLocked(
-	store *state.Store, client *herdr.Client, stderr io.Writer,
+	ctx context.Context, store *state.Store, client *herdr.Client, stderr io.Writer,
 	key, entrypoint, scopeMode, workspaceID string,
 ) (int, string) {
 	cwd, err := focusedCwd()
@@ -210,7 +213,7 @@ func openPopupLocked(
 		return 1, ""
 	}
 
-	paneID, err := client.PluginPaneOpen(pluginID, entrypoint, cwd)
+	paneID, err := client.PluginPaneOpen(ctx, pluginID, entrypoint, cwd)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: failed to open popup pane: %v\n", err)
 		return 1, ""
@@ -227,7 +230,7 @@ func openPopupLocked(
 		Hidden:          nil,
 	}
 	if err := store.Set(key, entry); err != nil {
-		_ = client.PluginPaneClose(paneID)
+		_ = client.PluginPaneClose(ctx, paneID)
 		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
 		return 1, ""
 	}
@@ -237,11 +240,11 @@ func openPopupLocked(
 
 // applySize runs the configured popup_size.<entrypoint> steps against the newly opened pane.
 // Best-effort: resize failures are ignored, sizing must never fail the toggle.
-func applySize(client *herdr.Client, cfg config.Config, entrypoint, paneID string) {
+func applySize(ctx context.Context, client *herdr.Client, cfg config.Config, entrypoint, paneID string) {
 	steps := config.ParseSizeSteps(cfg.PopupSizeSteps(entrypoint))
 	for _, step := range steps {
 		for range step.Count {
-			_ = client.PaneResize(paneID, step.Direction, step.Amount)
+			_ = client.PaneResize(ctx, paneID, step.Direction, step.Amount)
 		}
 	}
 }

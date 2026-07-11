@@ -2,22 +2,27 @@ package herdr
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const (
-	binPathEnvVar = "HERDR_BIN_PATH"
-	fallbackBin   = "herdr"
+	binPathEnvVar         = "HERDR_BIN_PATH"
+	commandTimeoutEnvVar  = "HERDR_COMMAND_TIMEOUT"
+	fallbackBin           = "herdr"
+	defaultCommandTimeout = 5 * time.Second
 )
 
 // Client execs the herdr CLI and parses its JSON responses. Every method
 // mirrors one herdr invocation toggle.sh makes.
 type Client struct {
-	bin string
+	bin            string
+	commandTimeout time.Duration
 }
 
 // NewClient resolves the herdr binary from $HERDR_BIN_PATH, falling back to
@@ -27,20 +32,46 @@ func NewClient() *Client {
 	if bin == "" {
 		bin = fallbackBin
 	}
-	return &Client{bin: bin}
+	return &Client{bin: bin, commandTimeout: commandTimeoutFromEnv()}
 }
 
-// run execs the herdr binary with args, returning stdout and stderr
-// separately so callers can parse stdout on success and report both on
-// failure.
+func commandTimeoutFromEnv() time.Duration {
+	raw := os.Getenv(commandTimeoutEnvVar)
+	if raw == "" {
+		return defaultCommandTimeout
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return defaultCommandTimeout
+	}
+	return timeout
+}
+
+func (c *Client) timeout() time.Duration {
+	if c.commandTimeout <= 0 {
+		return defaultCommandTimeout
+	}
+	return c.commandTimeout
+}
+
+// run execs the herdr binary with args, returning stdout and stderr separately
+// so callers can parse stdout on success and report both on failure. Each herdr
+// subprocess gets its own bounded context derived from the caller's context.
 //
 //nolint:gosec // c.bin is the plugin-configured herdr binary (HERDR_BIN_PATH or PATH lookup), the exact indirection this wrapper exists to perform.
-func (c *Client) run(args ...string) (stdout, stderr []byte, err error) {
-	cmd := exec.Command(c.bin, args...)
+func (c *Client) run(ctx context.Context, args ...string) (stdout, stderr []byte, err error) {
+	timeout := c.timeout()
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, c.bin, args...)
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 	err = cmd.Run()
+	if ctx.Err() != nil {
+		err = fmt.Errorf("%w after %s", ctx.Err(), timeout)
+	}
 	return outBuf.Bytes(), errBuf.Bytes(), err
 }
 
@@ -53,8 +84,8 @@ func capturedOutput(stdout, stderr []byte) string {
 // PluginPaneOpen runs `plugin pane open` and returns the opened pane's id.
 // It errors, with the captured output, on a non-zero exit or a response
 // missing .result.plugin_pane.pane.pane_id.
-func (c *Client) PluginPaneOpen(pluginID, entrypoint, cwd string) (string, error) {
-	stdout, stderr, err := c.run(
+func (c *Client) PluginPaneOpen(ctx context.Context, pluginID, entrypoint, cwd string) (string, error) {
+	stdout, stderr, err := c.run(ctx,
 		"plugin", "pane", "open",
 		"--plugin", pluginID,
 		"--entrypoint", entrypoint,
@@ -63,7 +94,7 @@ func (c *Client) PluginPaneOpen(pluginID, entrypoint, cwd string) (string, error
 		"--focus",
 	)
 	if err != nil {
-		return "", fmt.Errorf("herdr plugin pane open: %s", capturedOutput(stdout, stderr))
+		return "", herdrError("herdr plugin pane open", stdout, stderr, err)
 	}
 
 	var resp struct {
@@ -82,16 +113,16 @@ func (c *Client) PluginPaneOpen(pluginID, entrypoint, cwd string) (string, error
 }
 
 // PaneExists reports whether `pane get <id>` exits successfully.
-func (c *Client) PaneExists(paneID string) bool {
-	_, _, err := c.run("pane", "get", paneID)
+func (c *Client) PaneExists(ctx context.Context, paneID string) bool {
+	_, _, err := c.run(ctx, "pane", "get", paneID)
 	return err == nil
 }
 
 // TabSibling returns a pane_id sharing paneID's tab (any pane other than
 // itself), or "" when it is alone in its tab, `pane layout` fails, or the
 // response is malformed.
-func (c *Client) TabSibling(paneID string) string {
-	stdout, _, err := c.run("pane", "layout", "--pane", paneID)
+func (c *Client) TabSibling(ctx context.Context, paneID string) string {
+	stdout, _, err := c.run(ctx, "pane", "layout", "--pane", paneID)
 	if err != nil {
 		return ""
 	}
@@ -117,20 +148,20 @@ func (c *Client) TabSibling(paneID string) string {
 }
 
 // ZoomOn runs `pane zoom <id> --on`, reporting failure via the returned error.
-func (c *Client) ZoomOn(paneID string) error {
-	_, stderr, err := c.run("pane", "zoom", paneID, "--on")
+func (c *Client) ZoomOn(ctx context.Context, paneID string) error {
+	stdout, stderr, err := c.run(ctx, "pane", "zoom", paneID, "--on")
 	if err != nil {
-		return fmt.Errorf("herdr pane zoom: %s", strings.TrimSpace(string(stderr)))
+		return herdrError("herdr pane zoom", stdout, stderr, err)
 	}
 	return nil
 }
 
 // PluginPaneFocus runs `plugin pane focus <id>`, reporting failure via the
 // returned error.
-func (c *Client) PluginPaneFocus(paneID string) error {
-	_, stderr, err := c.run("plugin", "pane", "focus", paneID)
+func (c *Client) PluginPaneFocus(ctx context.Context, paneID string) error {
+	stdout, stderr, err := c.run(ctx, "plugin", "pane", "focus", paneID)
 	if err != nil {
-		return fmt.Errorf("herdr plugin pane focus: %s", strings.TrimSpace(string(stderr)))
+		return herdrError("herdr plugin pane focus", stdout, stderr, err)
 	}
 	return nil
 }
@@ -138,10 +169,10 @@ func (c *Client) PluginPaneFocus(paneID string) error {
 // PaneResize runs `pane resize --direction <direction> --amount <amount>
 // --pane <id>`. Best-effort: callers are expected to ignore the returned
 // error, since sizing is cosmetic and must never fail the toggle.
-func (c *Client) PaneResize(paneID, direction, amount string) error {
-	_, stderr, err := c.run("pane", "resize", "--direction", direction, "--amount", amount, "--pane", paneID)
+func (c *Client) PaneResize(ctx context.Context, paneID, direction, amount string) error {
+	stdout, stderr, err := c.run(ctx, "pane", "resize", "--direction", direction, "--amount", amount, "--pane", paneID)
 	if err != nil {
-		return fmt.Errorf("herdr pane resize: %s", strings.TrimSpace(string(stderr)))
+		return herdrError("herdr pane resize", stdout, stderr, err)
 	}
 	return nil
 }
@@ -149,10 +180,18 @@ func (c *Client) PaneResize(paneID, direction, amount string) error {
 // PluginPaneClose runs `plugin pane close <id>`. Best-effort: callers are
 // expected to ignore the returned error and clear their registry entry
 // regardless of whether the close call succeeds.
-func (c *Client) PluginPaneClose(paneID string) error {
-	_, stderr, err := c.run("plugin", "pane", "close", paneID)
+func (c *Client) PluginPaneClose(ctx context.Context, paneID string) error {
+	stdout, stderr, err := c.run(ctx, "plugin", "pane", "close", paneID)
 	if err != nil {
-		return fmt.Errorf("herdr plugin pane close: %s", strings.TrimSpace(string(stderr)))
+		return herdrError("herdr plugin pane close", stdout, stderr, err)
 	}
 	return nil
+}
+
+func herdrError(operation string, stdout, stderr []byte, err error) error {
+	output := capturedOutput(stdout, stderr)
+	if output == "" {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	return fmt.Errorf("%s: %s", operation, output)
 }
