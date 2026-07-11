@@ -7,8 +7,12 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// toggleBinary is the manifest-declared path to the built Go binary.
-const toggleBinary = "./bin/toggle-popup"
+const (
+	// toggleBinary is the manifest-declared path to the built Go binary.
+	toggleBinary    = "./bin/toggle-popup"
+	shellEntrypoint = "shell"
+	paneBinaryShell = `exec "$HERDR_PLUGIN_ROOT/bin/toggle-popup" popup-shell shell`
+)
 
 // manifest mirrors the subset of herdr-plugin.toml this test asserts on. Field order matches the
 // file so a failing assertion is easy to locate.
@@ -124,7 +128,7 @@ func TestManifestToggleShellAction(t *testing.T) {
 	if !reflect.DeepEqual(a.Contexts, wantContexts) {
 		t.Errorf("Contexts = %v, want %v", a.Contexts, wantContexts)
 	}
-	wantCommand := []string{toggleBinary, "toggle", "shell"}
+	wantCommand := []string{toggleBinary, "toggle", shellEntrypoint}
 	if !reflect.DeepEqual(a.Command, wantCommand) {
 		t.Errorf("Command = %v, want %v", a.Command, wantCommand)
 	}
@@ -149,7 +153,10 @@ func TestManifestShellPane(t *testing.T) {
 	if p.Placement != "overlay" {
 		t.Errorf("Placement = %q, want %q", p.Placement, "overlay")
 	}
-	wantCommand := []string{"sh", "-c", `exec "$HERDR_PLUGIN_ROOT/bin/toggle-popup" popup-shell shell`}
+	// Herdr starts panes in the target cwd, not the plugin root, so the pane command must resolve
+	// the binary through HERDR_PLUGIN_ROOT. Keep this assertion strict so a direct ./bin/toggle-popup
+	// regression fails manifest tests.
+	wantCommand := []string{"sh", "-c", paneBinaryShell}
 	if !reflect.DeepEqual(p.Command, wantCommand) {
 		t.Errorf("Command = %v, want %v", p.Command, wantCommand)
 	}
