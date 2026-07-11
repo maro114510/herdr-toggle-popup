@@ -167,6 +167,16 @@ func invoke(args ...string) (code int, stderr string) {
 	return code, errBuf.String()
 }
 
+func assertContainsAll(t *testing.T, got string, wants ...string) {
+	t.Helper()
+
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("got = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
 func TestOpensNewPopupAndSavesItsPaneID(t *testing.T) {
 	env := setupEnv(t)
 	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
@@ -390,11 +400,7 @@ func TestHideCloseFailureRollsBackHiddenFlag(t *testing.T) {
 	if entry.Hidden != nil && *entry.Hidden {
 		t.Errorf("Hidden = %v, want false", entry.Hidden)
 	}
-	for _, want := range []string{"could not hide the popup", "stub close failure"} {
-		if !strings.Contains(stderr, want) {
-			t.Errorf("stderr = %q, want it to contain %q", stderr, want)
-		}
-	}
+	assertContainsAll(t, stderr, "could not hide the popup", "stub close failure")
 
 	log := env.log(t)
 	if !strings.Contains(log, "plugin pane close pane-existing\n") {
