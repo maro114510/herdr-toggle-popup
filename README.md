@@ -11,12 +11,14 @@ herdr plugin install maro114510/herdr-toggle-popup
 ```
 
 This plugin requires `tmux` to keep the popup shell session alive while the Herdr popup pane is hidden.
-Install runs a confirmed build step that verifies `tmux` is available and tries to install it when possible (`brew install tmux` on macOS/Homebrew, or root package-manager installs on Linux).
-If automatic installation is not possible, install tmux yourself and rerun the plugin install:
+Install runs a build step that verifies `tmux` is available, but it does not install system packages.
+Install tmux yourself before installing the plugin, or install it after a failed build and rerun the plugin install:
 
 ```bash
-brew install tmux              # macOS / Homebrew
+brew install tmux
 ```
+
+On Linux, install `tmux` with your distribution's package manager.
 
 The same build step builds `./bin/toggle-popup` from source if you have a Go toolchain, otherwise it downloads and checksum-verifies the matching prebuilt binary from GitHub Releases.
 
