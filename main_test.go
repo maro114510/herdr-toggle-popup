@@ -134,3 +134,21 @@ func TestRun_VersionPrintsVersionToStdout(t *testing.T) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout.String(), version)
 	}
 }
+
+func TestRun_DoctorDispatchesToDoctorSubcommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdDoctor}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "toggle-popup diagnostics") {
+		t.Errorf("stdout = %q, want doctor output", stdout.String())
+	}
+}
