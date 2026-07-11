@@ -22,10 +22,20 @@ set -euo pipefail
 : "${FAKE_HERDR_LOG:?FAKE_HERDR_LOG must be set}"
 printf '%s\n' "$*" >> "$FAKE_HERDR_LOG"
 
+assert_args() {
+  expected="$1"
+  shift
+  if [ "$*" != "$expected" ]; then
+    printf 'fake herdr: unexpected args: got %s, want %s\n' "$*" "$expected" >&2
+    exit 98
+  fi
+}
+
 case "$1 $2" in
   "plugin pane")
     case "$3" in
       open)
+        assert_args 'plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement overlay --cwd /focused/cwd --focus' "$@"
         exit_code="${FAKE_HERDR_OPEN_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
           printf 'stub open failure\n' >&2
@@ -47,6 +57,7 @@ case "$1 $2" in
         exit 0
         ;;
       close)
+        assert_args 'plugin pane close pane-1' "$@"
         exit_code="${FAKE_HERDR_CLOSE_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
           printf 'stub close failure\n' >&2
@@ -55,6 +66,7 @@ case "$1 $2" in
         printf '{"result":{"type":"plugin_pane_closed"}}\n'
         ;;
       focus)
+        assert_args 'plugin pane focus pane-1' "$@"
         exit_code="${FAKE_HERDR_FOCUS_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
           printf 'stub focus failure\n' >&2
@@ -65,6 +77,7 @@ case "$1 $2" in
     esac
     ;;
   "pane get")
+    assert_args 'pane get pane-1' "$@"
     exit_code="${FAKE_HERDR_GET_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub get failure\n' >&2
@@ -73,6 +86,7 @@ case "$1 $2" in
     printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3"
     ;;
   "pane layout")
+    assert_args 'pane layout --pane pane-1' "$@"
     exit_code="${FAKE_HERDR_LAYOUT_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub layout failure\n' >&2
@@ -89,6 +103,7 @@ case "$1 $2" in
     fi
     ;;
   "pane zoom")
+    assert_args 'pane zoom pane-1 --on' "$@"
     exit_code="${FAKE_HERDR_ZOOM_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub zoom failure\n' >&2
@@ -97,6 +112,7 @@ case "$1 $2" in
     printf '{"result":{"zoom":{"changed":true}}}\n'
     ;;
   "pane resize")
+    assert_args 'pane resize --direction right --amount 0.5 --pane pane-1' "$@"
     exit_code="${FAKE_HERDR_RESIZE_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub resize failure\n' >&2

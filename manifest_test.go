@@ -2,6 +2,8 @@ package main
 
 import (
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -18,6 +20,7 @@ const (
 // file so a failing assertion is easy to locate.
 type manifest struct {
 	ID              string   `toml:"id"`
+	Name            string   `toml:"name"`
 	Version         string   `toml:"version"`
 	MinHerdrVersion string   `toml:"min_herdr_version"`
 	Platforms       []string `toml:"platforms"`
@@ -63,6 +66,17 @@ func loadManifest(t *testing.T) manifest {
 	return m
 }
 
+func loadManifestMetadata(t *testing.T) toml.MetaData {
+	t.Helper()
+
+	var m manifest
+	md, err := toml.DecodeFile("herdr-plugin.toml", &m)
+	if err != nil {
+		t.Fatalf("decode herdr-plugin.toml: %v", err)
+	}
+	return md
+}
+
 func loadKeybindings(t *testing.T) keybindings {
 	t.Helper()
 
@@ -83,12 +97,51 @@ func TestManifestPluginMetadata(t *testing.T) {
 	if m.ID != "maro114510.toggle-popup" {
 		t.Errorf("ID = %q, want %q", m.ID, "maro114510.toggle-popup")
 	}
+	if m.Name != "Toggle Popup" {
+		t.Errorf("Name = %q, want %q", m.Name, "Toggle Popup")
+	}
 	if m.MinHerdrVersion != "0.7.0" {
 		t.Errorf("MinHerdrVersion = %q, want %q", m.MinHerdrVersion, "0.7.0")
 	}
 	wantPlatforms := []string{"macos", "linux"}
 	if !reflect.DeepEqual(m.Platforms, wantPlatforms) {
 		t.Errorf("Platforms = %v, want %v", m.Platforms, wantPlatforms)
+	}
+}
+
+func TestManifestV1ContractSchema(t *testing.T) {
+	t.Parallel()
+
+	md := loadManifestMetadata(t)
+	if undecoded := md.Undecoded(); len(undecoded) != 0 {
+		fields := make([]string, 0, len(undecoded))
+		for _, key := range undecoded {
+			fields = append(fields, key.String())
+		}
+		t.Fatalf("herdr-plugin.toml has fields outside the tested plugin v1 contract: %s", strings.Join(fields, ", "))
+	}
+
+	m := loadManifest(t)
+	required := map[string]string{
+		"id":                m.ID,
+		"name":              m.Name,
+		"version":           m.Version,
+		"min_herdr_version": m.MinHerdrVersion,
+	}
+	for field, value := range required {
+		if value == "" {
+			t.Errorf("%s is empty, want a plugin v1 manifest value", field)
+		}
+	}
+
+	semver := regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+	for field, value := range map[string]string{
+		"version":           m.Version,
+		"min_herdr_version": m.MinHerdrVersion,
+	} {
+		if !semver.MatchString(value) {
+			t.Errorf("%s = %q, want MAJOR.MINOR.PATCH", field, value)
+		}
 	}
 }
 
