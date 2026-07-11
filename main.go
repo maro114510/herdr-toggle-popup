@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/maro114510/herdr-toggle-popup/internal/doctor"
 	"github.com/maro114510/herdr-toggle-popup/internal/onpaneclosed"
 	"github.com/maro114510/herdr-toggle-popup/internal/popupshell"
 	"github.com/maro114510/herdr-toggle-popup/internal/toggle"
@@ -17,6 +18,7 @@ const (
 	cmdToggle       = "toggle"
 	cmdOnPaneClosed = "on-pane-closed"
 	cmdPopupShell   = "popup-shell"
+	cmdDoctor       = "doctor"
 	cmdVersion      = "version"
 )
 
@@ -26,6 +28,7 @@ Commands:
   toggle           Toggle the popup pane
   on-pane-closed   Handle a pane-closed event
   popup-shell      Run the shell inside the popup pane
+  doctor           Print safe diagnostics for support
   version          Print the toggle-popup version
 `
 
@@ -62,6 +65,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 		newDispatchCmd(cmdToggle, "Toggle the popup pane", toggle.Run),
 		newDispatchCmd(cmdOnPaneClosed, "Handle a pane-closed event", onpaneclosed.Run),
 		newDispatchCmd(cmdPopupShell, "Run the shell inside the popup pane", popupshell.Run),
+		newDoctorCmd(),
 		newVersionCmd(),
 	)
 
@@ -81,6 +85,21 @@ func newDispatchCmd(use, short string, run dispatchFunc) *cobra.Command {
 	cmd.SilenceUsage = true
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if code := run(args, cmd.OutOrStdout(), cmd.ErrOrStderr()); code != 0 {
+			return errDispatchFailed
+		}
+		return nil
+	}
+	return cmd
+}
+
+func newDoctorCmd() *cobra.Command {
+	cmd := new(cobra.Command)
+	cmd.Use = cmdDoctor
+	cmd.Short = "Print safe diagnostics for support"
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if code := doctor.Run(args, cmd.OutOrStdout(), cmd.ErrOrStderr(), version); code != 0 {
 			return errDispatchFailed
 		}
 		return nil

@@ -82,6 +82,17 @@ An entrypoint with no `popup_size` key opens exactly as it does today.
 Each Herdr CLI call times out after 5 seconds by default.
 Set `HERDR_COMMAND_TIMEOUT` to a Go duration such as `2s`, `500ms`, or `1m` to override it.
 
+## Diagnostics
+
+Run the doctor command when collecting details for install or runtime support:
+
+```bash
+"$HERDR_PLUGIN_ROOT/bin/toggle-popup" doctor
+```
+
+It reports Herdr binary resolution, `tmux`, plugin root, config parse status, state file status, and version status.
+The output is intended to be safe to share: it does not dump environment variables, shell history, config file bodies, or state file bodies.
+
 ## License
 
 [Apache License 2.0](./LICENSE)
