@@ -22,10 +22,33 @@ set -euo pipefail
 : "${STUB_HERDR_LOG:?STUB_HERDR_LOG must be set}"
 printf '%s\n' "$*" >> "$STUB_HERDR_LOG"
 
+fail_args() {
+  printf 'stub herdr: unexpected args: %s\n' "$*" >&2
+  exit 98
+}
+
+assert_arg_count() {
+  want="$1"
+  shift
+  if [ "$#" -ne "$want" ]; then
+    fail_args "$@"
+  fi
+}
+
 case "$1 $2" in
   "plugin pane")
     case "$3" in
       open)
+        assert_arg_count 12 "$@"
+        [ "$4" = "--plugin" ] || fail_args "$@"
+        [ "$5" = "maro114510.toggle-popup" ] || fail_args "$@"
+        [ "$6" = "--entrypoint" ] || fail_args "$@"
+        [ -n "$7" ] || fail_args "$@"
+        [ "$8" = "--placement" ] || fail_args "$@"
+        [ "$9" = "overlay" ] || fail_args "$@"
+        [ "${10}" = "--cwd" ] || fail_args "$@"
+        [ -n "${11}" ] || fail_args "$@"
+        [ "${12}" = "--focus" ] || fail_args "$@"
         exit_code="${STUB_HERDR_OPEN_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
           printf 'stub open failure\n' >&2
@@ -38,6 +61,8 @@ case "$1 $2" in
         printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s"}}}}\n' "$pane_id"
         ;;
       close)
+        assert_arg_count 4 "$@"
+        [ -n "$4" ] || fail_args "$@"
         exit_code="${STUB_HERDR_CLOSE_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
           printf 'stub close failure\n' >&2
@@ -46,6 +71,8 @@ case "$1 $2" in
         printf '{"result":{"type":"plugin_pane_closed"}}\n'
         ;;
       focus)
+        assert_arg_count 4 "$@"
+        [ -n "$4" ] || fail_args "$@"
         exit_code="${STUB_HERDR_FOCUS_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
           printf 'stub focus failure\n' >&2
@@ -56,6 +83,8 @@ case "$1 $2" in
     esac
     ;;
   "pane get")
+    assert_arg_count 3 "$@"
+    [ -n "$3" ] || fail_args "$@"
     exit_code="${STUB_HERDR_GET_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub get failure\n' >&2
@@ -64,6 +93,9 @@ case "$1 $2" in
     printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3"
     ;;
   "pane layout")
+    assert_arg_count 4 "$@"
+    [ "$3" = "--pane" ] || fail_args "$@"
+    [ -n "$4" ] || fail_args "$@"
     exit_code="${STUB_HERDR_LAYOUT_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub layout failure\n' >&2
@@ -76,6 +108,9 @@ case "$1 $2" in
     fi
     ;;
   "pane zoom")
+    assert_arg_count 4 "$@"
+    [ -n "$3" ] || fail_args "$@"
+    [ "$4" = "--on" ] || fail_args "$@"
     exit_code="${STUB_HERDR_ZOOM_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub zoom failure\n' >&2
@@ -84,6 +119,13 @@ case "$1 $2" in
     printf '{"result":{"zoom":{"changed":true}}}\n'
     ;;
   "pane resize")
+    assert_arg_count 8 "$@"
+    [ "$3" = "--direction" ] || fail_args "$@"
+    [ -n "$4" ] || fail_args "$@"
+    [ "$5" = "--amount" ] || fail_args "$@"
+    [ -n "$6" ] || fail_args "$@"
+    [ "$7" = "--pane" ] || fail_args "$@"
+    [ -n "$8" ] || fail_args "$@"
     exit_code="${STUB_HERDR_RESIZE_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
       printf 'stub resize failure\n' >&2

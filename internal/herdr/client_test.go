@@ -53,6 +53,10 @@ const (
 // PluginPaneClose
 // - nil on zero exit, argv is "plugin pane close <id>"
 // - error on non-zero exit
+//
+// Contract smoke
+// - fake Herdr rejects drift from the command argv shapes this plugin assumes
+// - live Herdr contract check is skipped unless explicitly enabled
 
 func newFakeHerdrOnPath(t *testing.T) string {
 	t.Helper()
@@ -118,6 +122,65 @@ func TestPluginPaneOpen_Success(t *testing.T) {
 	wantArgv := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement overlay --cwd /focused/cwd --focus\n"
 	if log != wantArgv {
 		t.Errorf("argv = %q, want %q", log, wantArgv)
+	}
+}
+
+//nolint:paralleltest // newFakeHerdr mutates HERDR_BIN_PATH via t.Setenv, not parallel-safe.
+func TestHerdrCLIContractSmoke_Fake(t *testing.T) {
+	logPath := newFakeHerdr(t)
+
+	c := NewClient()
+	if _, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd); err != nil {
+		t.Fatalf("PluginPaneOpen() error = %v", err)
+	}
+	if !c.PaneExists(t.Context(), testPaneID) {
+		t.Fatal("PaneExists() = false, want true")
+	}
+	if sibling := c.TabSibling(t.Context(), testPaneID); sibling != "pane-sibling" {
+		t.Fatalf("TabSibling() = %q, want pane-sibling", sibling)
+	}
+	if err := c.ZoomOn(t.Context(), testPaneID); err != nil {
+		t.Fatalf("ZoomOn() error = %v", err)
+	}
+	if err := c.PluginPaneFocus(t.Context(), testPaneID); err != nil {
+		t.Fatalf("PluginPaneFocus() error = %v", err)
+	}
+	if err := c.PaneResize(t.Context(), testPaneID, "right", "0.5"); err != nil {
+		t.Fatalf("PaneResize() error = %v", err)
+	}
+	if err := c.PluginPaneClose(t.Context(), testPaneID); err != nil {
+		t.Fatalf("PluginPaneClose() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement overlay --cwd /focused/cwd --focus",
+		"pane get pane-1",
+		"pane layout --pane pane-1",
+		"pane zoom pane-1 --on",
+		"plugin pane focus pane-1",
+		"pane resize --direction right --amount 0.5 --pane pane-1",
+		"plugin pane close pane-1",
+		"",
+	}, "\n")
+	if got := readLog(t, logPath); got != want {
+		t.Errorf("fake Herdr argv log = %q, want %q", got, want)
+	}
+}
+
+func TestHerdrCLIContractSmoke_LiveOptIn(t *testing.T) {
+	t.Parallel()
+
+	if os.Getenv("HERDR_LIVE_CONTRACT_TESTS") != "1" {
+		t.Skip("set HERDR_LIVE_CONTRACT_TESTS=1 and HERDR_LIVE_PANE_ID to run live Herdr contract smoke")
+	}
+	paneID := os.Getenv("HERDR_LIVE_PANE_ID")
+	if paneID == "" {
+		t.Fatal("HERDR_LIVE_PANE_ID must name an existing pane for live Herdr contract smoke")
+	}
+
+	c := NewClient()
+	if !c.PaneExists(t.Context(), paneID) {
+		t.Fatalf("PaneExists(%q) = false, want true against live Herdr", paneID)
 	}
 }
 
