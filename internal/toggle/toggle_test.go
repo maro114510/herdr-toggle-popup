@@ -21,6 +21,7 @@ import (
 // - stale-pane-id-recovery on the hide path
 // - live-pane close failure rolls the hidden flag back to visible and leaves the pane registered
 // - open failure: prints to stderr, does not touch the registry, exits non-zero
+// - open timeout: prints a clear timeout error, does not touch the registry, exits non-zero
 // - missing focused-pane cwd: fails before ever invoking herdr plugin pane open
 // - missing workspace id: fails before touching the registry or calling herdr
 // - HERDR_BIN_PATH fallback: falls back to a herdr found on PATH when the env var is unset
@@ -164,6 +165,16 @@ func invoke(args ...string) (code int, stderr string) {
 	var outBuf, errBuf bytes.Buffer
 	code = Run(args, &outBuf, &errBuf)
 	return code, errBuf.String()
+}
+
+func assertContainsAll(t *testing.T, got string, wants ...string) {
+	t.Helper()
+
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("got = %q, want it to contain %q", got, want)
+		}
+	}
 }
 
 func TestOpensNewPopupAndSavesItsPaneID(t *testing.T) {
@@ -389,6 +400,7 @@ func TestHideCloseFailureRollsBackHiddenFlag(t *testing.T) {
 	if entry.Hidden != nil && *entry.Hidden {
 		t.Errorf("Hidden = %v, want false", entry.Hidden)
 	}
+	assertContainsAll(t, stderr, "could not hide the popup", "stub close failure")
 
 	log := env.log(t)
 	if !strings.Contains(log, "plugin pane close pane-existing\n") {
@@ -439,6 +451,25 @@ func TestOpenFailurePrintsErrorAndDoesNotWriteRegistry(t *testing.T) {
 	}
 	if stderr == "" {
 		t.Error("stderr = empty, want a message")
+	}
+	if env.popupsFileExists() {
+		t.Error("popups.json exists, want none")
+	}
+}
+
+func TestOpenTimeoutPrintsClearErrorAndDoesNotWriteRegistry(t *testing.T) {
+	env := setupEnv(t)
+	t.Setenv("HERDR_COMMAND_TIMEOUT", "50ms")
+	t.Setenv("STUB_HERDR_OPEN_DELAY_SECONDS", "0.2")
+
+	code, stderr := invoke(testEntrypointShell)
+	if code == 0 {
+		t.Fatal("code = 0, want non-zero")
+	}
+	for _, want := range []string{"failed to open popup pane", "context deadline exceeded", "50ms"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to contain %q", stderr, want)
+		}
 	}
 	if env.popupsFileExists() {
 		t.Error("popups.json exists, want none")

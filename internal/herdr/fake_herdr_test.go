@@ -39,6 +39,9 @@ case "$1 $2" in
           printf '{"result":{"plugin_pane":{"pane":{}}}}\n'
           exit 0
         fi
+        if [ -n "${FAKE_HERDR_OPEN_DELAY_SECONDS:-}" ]; then
+          sleep "$FAKE_HERDR_OPEN_DELAY_SECONDS"
+        fi
         pane_id="${FAKE_HERDR_OPEN_PANE_ID:-new-pane-1}"
         printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s"}}}}\n' "$pane_id"
         exit 0
