@@ -927,7 +927,7 @@ func callSequence(log string) []string {
 	const fieldsPerCall = 3
 
 	var calls []string
-	for _, line := range strings.Split(strings.TrimRight(log, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(log, "\n"), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= fieldsPerCall {
 			calls = append(calls, strings.Join(fields[:fieldsPerCall], " "))
@@ -1035,7 +1035,7 @@ func TestPopupSizeRunsConfiguredSequence(t *testing.T) {
 	}
 
 	var resizeCalls []string
-	for _, line := range strings.Split(strings.TrimRight(env.log(t), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(env.log(t), "\n"), "\n") {
 		if strings.HasPrefix(line, "pane resize") {
 			resizeCalls = append(resizeCalls, line)
 		}
@@ -1080,7 +1080,7 @@ func TestPopupSizeMalformedStepSkipped(t *testing.T) {
 	}
 
 	var resizeCalls []string
-	for _, line := range strings.Split(strings.TrimRight(env.log(t), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(env.log(t), "\n"), "\n") {
 		if strings.HasPrefix(line, "pane resize") {
 			resizeCalls = append(resizeCalls, line)
 		}
