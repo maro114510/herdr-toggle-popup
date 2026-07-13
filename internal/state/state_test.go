@@ -47,8 +47,6 @@ func newEntry(paneID string) Entry {
 	}
 }
 
-func ptr(s string) *string { return &s }
-
 func TestRead_MissingFile(t *testing.T) {
 	t.Parallel()
 
@@ -404,7 +402,7 @@ func TestSet_RoundTrip(t *testing.T) {
 		PluginID:        "maro114510.toggle-popup",
 		Entrypoint:      "shell",
 		Scope:           testScopeWorkspace,
-		WorkspaceID:     ptr("ws1"),
+		WorkspaceID:     new("ws1"),
 		TabID:           nil,
 		CreatedAtUnixMs: 1720000000000,
 		Hidden:          nil,
@@ -478,7 +476,7 @@ func TestSet_WritesDocumentedFieldSet(t *testing.T) {
 		PluginID:        "maro114510.toggle-popup",
 		Entrypoint:      "shell",
 		Scope:           testScopeWorkspace,
-		WorkspaceID:     ptr("ws1"),
+		WorkspaceID:     new("ws1"),
 		TabID:           nil,
 		CreatedAtUnixMs: 1,
 		Hidden:          nil,
