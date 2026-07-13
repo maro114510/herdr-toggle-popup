@@ -39,6 +39,13 @@ jobs:
             echo "$fmt_out"
             exit 1
           fi
+      - name: Check go fix
+        run: |
+          go fix ./...
+          if ! git diff --exit-code -- '*.go'; then
+            echo "go fix produced Go source changes. Run 'go fix ./...' locally and commit the result."
+            exit 1
+          fi
       - name: Run go vet
         run: go vet ./...
       - name: Run go test
