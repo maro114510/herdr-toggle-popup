@@ -97,6 +97,26 @@ func TestRun_OnPaneClosedDispatchesToOnPaneClosedSubcommand(t *testing.T) {
 	}
 }
 
+// on-tab-focused is wired to internal/ontabfocused.Run (see internal/ontabfocused for its own
+// test suite); this only asserts main.go actually dispatches to it, using a missing-state-dir
+// error to get an ontabfocused-specific message without needing a real registry.
+func TestRun_OnTabFocusedDispatchesToOnTabFocusedSubcommand(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_TAB_ID", "tab-1")
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdOnTabFocused}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero when HERDR_PLUGIN_STATE_DIR is unset")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "on-tab-focused") {
+		t.Errorf("stderr = %q, want an on-tab-focused-prefixed error, confirming dispatch", stderr.String())
+	}
+}
+
 // popup-shell is wired to internal/popupshell.Run (see internal/popupshell for its own test
 // suite, including one that proves it really execs and replaces the process); this only
 // asserts main.go actually dispatches to it. A nonexistent $SHELL fails before any exec is

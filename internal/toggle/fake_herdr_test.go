@@ -58,7 +58,8 @@ case "$1 $2" in
           sleep "$STUB_HERDR_OPEN_DELAY_SECONDS"
         fi
         pane_id="${STUB_HERDR_OPEN_PANE_ID:-new-pane-1}"
-        printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s"}}}}\n' "$pane_id"
+        tab_id="${STUB_HERDR_OPEN_TAB_ID-tab-1}"
+        printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s","tab_id":"%s"}}}}\n' "$pane_id" "$tab_id"
         ;;
       close)
         assert_arg_count 4 "$@"

@@ -110,12 +110,15 @@ func TestPluginPaneOpen_Success(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_PANE_ID", "pane-42")
 
 	c := NewClient()
-	paneID, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
+	paneID, tabID, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err != nil {
 		t.Fatalf("PluginPaneOpen() error = %v", err)
 	}
 	if paneID != "pane-42" {
 		t.Errorf("paneID = %q, want %q", paneID, "pane-42")
+	}
+	if tabID != "tab-1" {
+		t.Errorf("tabID = %q, want %q", tabID, "tab-1")
 	}
 
 	log := readLog(t, logPath)
@@ -125,12 +128,29 @@ func TestPluginPaneOpen_Success(t *testing.T) {
 	}
 }
 
+func TestPluginPaneOpen_MissingTabIDDoesNotError(t *testing.T) {
+	newFakeHerdr(t)
+	t.Setenv("FAKE_HERDR_OPEN_OMIT_TAB_ID", "1")
+
+	c := NewClient()
+	paneID, tabID, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
+	if err != nil {
+		t.Fatalf("PluginPaneOpen() error = %v", err)
+	}
+	if paneID != "new-pane-1" {
+		t.Errorf("paneID = %q, want %q", paneID, "new-pane-1")
+	}
+	if tabID != "" {
+		t.Errorf("tabID = %q, want empty when the response omits tab_id", tabID)
+	}
+}
+
 //nolint:paralleltest // newFakeHerdr mutates HERDR_BIN_PATH via t.Setenv, not parallel-safe.
 func TestHerdrCLIContractSmoke_Fake(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	if _, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd); err != nil {
+	if _, _, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd); err != nil {
 		t.Fatalf("PluginPaneOpen() error = %v", err)
 	}
 	if !c.PaneExists(t.Context(), testPaneID) {
@@ -189,7 +209,7 @@ func TestPluginPaneOpen_NonZeroExit(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_EXIT", "1")
 
 	c := NewClient()
-	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
+	_, _, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err == nil {
 		t.Fatal("PluginPaneOpen() error = nil, want error")
 	}
@@ -204,7 +224,7 @@ func TestPluginPaneOpen_Timeout(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_DELAY_SECONDS", "0.2")
 
 	c := NewClient()
-	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
+	_, _, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err == nil {
 		t.Fatal("PluginPaneOpen() error = nil, want timeout error")
 	}
@@ -220,7 +240,7 @@ func TestPluginPaneOpen_MalformedJSON(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_MALFORMED", "1")
 
 	c := NewClient()
-	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
+	_, _, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err == nil {
 		t.Fatal("PluginPaneOpen() error = nil, want error on malformed JSON")
 	}
@@ -231,7 +251,7 @@ func TestPluginPaneOpen_MissingPaneID(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_MISSING_PANE_ID", "1")
 
 	c := NewClient()
-	_, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
+	_, _, err := c.PluginPaneOpen(t.Context(), testPluginID, testEntrypoint, testCwd)
 	if err == nil {
 		t.Fatal("PluginPaneOpen() error = nil, want error on missing pane_id")
 	}

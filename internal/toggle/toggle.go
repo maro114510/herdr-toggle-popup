@@ -213,7 +213,7 @@ func openPopupLocked(
 		return 1, ""
 	}
 
-	paneID, err := client.PluginPaneOpen(ctx, pluginID, entrypoint, cwd)
+	paneID, tabID, err := client.PluginPaneOpen(ctx, pluginID, entrypoint, cwd)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: failed to open popup pane: %v\n", err)
 		return 1, ""
@@ -225,7 +225,7 @@ func openPopupLocked(
 		Entrypoint:      entrypoint,
 		Scope:           scopeMode,
 		WorkspaceID:     &workspaceID,
-		TabID:           nil,
+		TabID:           tabIDPointer(tabID),
 		CreatedAtUnixMs: time.Now().Unix() * msPerSecond,
 		Hidden:          nil,
 	}
@@ -236,6 +236,16 @@ func openPopupLocked(
 	}
 
 	return 0, paneID
+}
+
+// tabIDPointer returns nil for an empty tabID (a herdr response that omitted tab_id) so
+// state.Entry.TabID stays absent rather than a pointer to an empty string, matching how a
+// popup with no known tab is treated as unknown, not "in tab \"\"", by on-tab-focused.
+func tabIDPointer(tabID string) *string {
+	if tabID == "" {
+		return nil
+	}
+	return &tabID
 }
 
 // applySize runs the configured popup_size.<entrypoint> steps against the newly opened pane.

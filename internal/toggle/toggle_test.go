@@ -177,9 +177,18 @@ func assertContainsAll(t *testing.T, got string, wants ...string) {
 	}
 }
 
+func assertStringPointerEquals(t *testing.T, field string, got *string, want string) {
+	t.Helper()
+
+	if got == nil || *got != want {
+		t.Errorf("%s = %v, want %q", field, got, want)
+	}
+}
+
 func TestOpensNewPopupAndSavesItsPaneID(t *testing.T) {
 	env := setupEnv(t)
 	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
+	t.Setenv("STUB_HERDR_OPEN_TAB_ID", "tab-7")
 
 	code, stderr := invoke(testEntrypointShell)
 	if code != 0 {
@@ -202,9 +211,8 @@ func TestOpensNewPopupAndSavesItsPaneID(t *testing.T) {
 	if entry.Scope != "workspace" {
 		t.Errorf("Scope = %q, want workspace", entry.Scope)
 	}
-	if entry.WorkspaceID == nil || *entry.WorkspaceID != testWorkspaceID {
-		t.Errorf("WorkspaceID = %v, want %q", entry.WorkspaceID, testWorkspaceID)
-	}
+	assertStringPointerEquals(t, "WorkspaceID", entry.WorkspaceID, testWorkspaceID)
+	assertStringPointerEquals(t, "TabID", entry.TabID, "tab-7")
 
 	if strings.Contains(env.log(t), callPluginPaneClose) {
 		t.Error("log contains plugin pane close, want none")

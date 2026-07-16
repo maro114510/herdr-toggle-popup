@@ -222,14 +222,35 @@ func TestManifestPaneClosedEvent(t *testing.T) {
 
 	m := loadManifest(t)
 
-	if len(m.Events) != 1 {
-		t.Fatalf("len(Events) = %d, want 1", len(m.Events))
+	if len(m.Events) != 2 {
+		t.Fatalf("len(Events) = %d, want 2", len(m.Events))
 	}
 	e := m.Events[0]
 	if e.On != "pane.closed" {
 		t.Errorf("On = %q, want %q", e.On, "pane.closed")
 	}
 	wantCommand := []string{toggleBinary, "on-pane-closed"}
+	if !reflect.DeepEqual(e.Command, wantCommand) {
+		t.Errorf("Command = %v, want %v", e.Command, wantCommand)
+	}
+}
+
+// TestManifestTabFocusedEvent asserts the manifest declares the tab.focused event hook that
+// hides a registered popup when the user navigates away from its tab via the sidebar or any
+// other means that changes focus without invoking `toggle` or killing the popup pane.
+func TestManifestTabFocusedEvent(t *testing.T) {
+	t.Parallel()
+
+	m := loadManifest(t)
+
+	if len(m.Events) != 2 {
+		t.Fatalf("len(Events) = %d, want 2", len(m.Events))
+	}
+	e := m.Events[1]
+	if e.On != "tab.focused" {
+		t.Errorf("On = %q, want %q", e.On, "tab.focused")
+	}
+	wantCommand := []string{toggleBinary, "on-tab-focused"}
 	if !reflect.DeepEqual(e.Command, wantCommand) {
 		t.Errorf("Command = %v, want %v", e.Command, wantCommand)
 	}
