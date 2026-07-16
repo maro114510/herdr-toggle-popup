@@ -81,10 +81,12 @@ func capturedOutput(stdout, stderr []byte) string {
 	return strings.TrimSpace(string(stdout) + string(stderr))
 }
 
-// PluginPaneOpen runs `plugin pane open` and returns the opened pane's id.
-// It errors, with the captured output, on a non-zero exit or a response
-// missing .result.plugin_pane.pane.pane_id.
-func (c *Client) PluginPaneOpen(ctx context.Context, pluginID, entrypoint, cwd string) (string, error) {
+// PluginPaneOpen runs `plugin pane open` and returns the opened pane's id and tab id. It errors,
+// with the captured output, on a non-zero exit or a response missing
+// .result.plugin_pane.pane.pane_id. A missing .result.plugin_pane.pane.tab_id is not an error:
+// tabID is returned empty so callers can still open a popup against a herdr version or response
+// shape that omits it, at the cost of losing tab-focus-triggered auto-hide for that popup.
+func (c *Client) PluginPaneOpen(ctx context.Context, pluginID, entrypoint, cwd string) (paneID, tabID string, err error) {
 	stdout, stderr, err := c.run(ctx,
 		"plugin", "pane", "open",
 		"--plugin", pluginID,
@@ -94,7 +96,7 @@ func (c *Client) PluginPaneOpen(ctx context.Context, pluginID, entrypoint, cwd s
 		"--focus",
 	)
 	if err != nil {
-		return "", herdrError("herdr plugin pane open", stdout, stderr, err)
+		return "", "", herdrError("herdr plugin pane open", stdout, stderr, err)
 	}
 
 	var resp struct {
@@ -102,14 +104,15 @@ func (c *Client) PluginPaneOpen(ctx context.Context, pluginID, entrypoint, cwd s
 			PluginPane struct {
 				Pane struct {
 					PaneID string `json:"pane_id"`
+					TabID  string `json:"tab_id"`
 				} `json:"pane"`
 			} `json:"plugin_pane"`
 		} `json:"result"`
 	}
 	if jsonErr := json.Unmarshal(stdout, &resp); jsonErr != nil || resp.Result.PluginPane.Pane.PaneID == "" {
-		return "", fmt.Errorf("herdr plugin pane open: could not determine the opened pane's id: %s", capturedOutput(stdout, stderr))
+		return "", "", fmt.Errorf("herdr plugin pane open: could not determine the opened pane's id: %s", capturedOutput(stdout, stderr))
 	}
-	return resp.Result.PluginPane.Pane.PaneID, nil
+	return resp.Result.PluginPane.Pane.PaneID, resp.Result.PluginPane.Pane.TabID, nil
 }
 
 // PaneExists reports whether `pane get <id>` exits successfully.

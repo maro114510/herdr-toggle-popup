@@ -22,3 +22,7 @@ command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/toggle-popup\" popup-shell
 [[events]]
 on = "pane.closed"
 command = ["./bin/toggle-popup", "on-pane-closed"]
+
+[[events]]
+on = "tab.focused"
+command = ["./bin/toggle-popup", "on-tab-focused"]

@@ -53,7 +53,12 @@ case "$1 $2" in
           sleep "$FAKE_HERDR_OPEN_DELAY_SECONDS"
         fi
         pane_id="${FAKE_HERDR_OPEN_PANE_ID:-new-pane-1}"
-        printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s"}}}}\n' "$pane_id"
+        if [ "${FAKE_HERDR_OPEN_OMIT_TAB_ID:-0}" -eq 1 ]; then
+          printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s"}}}}\n' "$pane_id"
+        else
+          tab_id="${FAKE_HERDR_OPEN_TAB_ID:-tab-1}"
+          printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s","tab_id":"%s"}}}}\n' "$pane_id" "$tab_id"
+        fi
         exit 0
         ;;
       close)

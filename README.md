@@ -64,6 +64,8 @@ The popup client disables tmux's status line before attaching, so the popup cont
 
 If you want to intentionally discard a saved popup shell session, kill the matching tmux session manually with `tmux ls` and `tmux kill-session -t <session>`.
 
+Navigating away from the popup's tab (via the sidebar or any other focus change) hides it the same way pressing the toggle key does, instead of leaving a stale, empty overlay behind. Toggling it again from its original tab reopens the same tmux session.
+
 ## Configuring popup size
 
 Herdr has no way to open a popup at an absolute size, or to read a pane's current dimensions — `herdr pane resize` only supports relative, directional resizing (`--direction left|right|up|down`, `--amount FLOAT`).
