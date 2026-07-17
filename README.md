@@ -55,6 +55,18 @@ scope = "directory"
 
 With this set, toggling the same entrypoint from the same directory in any workspace opens or closes the same popup; toggling it from a different directory opens a separate one.
 
+## Tab-scoped popups
+
+To instead share a popup by the focused browser tab within a workspace, add `scope = "tab"` to the same `config.toml`:
+
+```toml
+scope = "tab"
+```
+
+With this set, the popup key folds in both the workspace ID and the focused tab's ID, so toggling the same entrypoint from the same tab opens or closes the same popup; toggling it from a different tab, or the same tab in a different workspace, opens a separate one.
+
+This does not change the auto-hide behavior described in "Session behavior" below, where navigating away from a popup's tab hides it: that behavior already keys off the tab ID recorded for each popup entry, not the scope mode.
+
 ## Session behavior
 
 Pressing the toggle key while the popup is visible closes the Herdr popup pane completely, so no border or zoom indicator remains on screen.
