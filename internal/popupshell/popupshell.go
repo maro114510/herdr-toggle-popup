@@ -24,6 +24,7 @@ const (
 	shellBin          = "sh"
 	tmuxBin           = "tmux"
 	scopeDirectory    = "directory"
+	scopeTab          = "tab"
 	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
 	sessionPrefix     = "herdr-toggle-popup-"
 	sessionHashBytes  = 16
@@ -104,6 +105,15 @@ func tmuxSessionKey(scopeMode, entrypoint string) (key, cwd string, err error) {
 	if workspaceID == "" {
 		return "", "", fmt.Errorf("%s must be set", workspaceIDEnvVar)
 	}
+
+	if scopeMode == scopeTab {
+		tabID := herdr.ContextField("tab_id")
+		if tabID == "" {
+			return "", "", errors.New("could not determine the focused tab's id")
+		}
+		return fmt.Sprintf("tab:%s:%s:%s", workspaceID, tabID, entrypoint), cwd, nil
+	}
+
 	return fmt.Sprintf("workspace:%s:%s", workspaceID, entrypoint), cwd, nil
 }
 

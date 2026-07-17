@@ -28,6 +28,7 @@ const (
 	ModeForceOpen = "force-open"
 
 	scopeDirectory = "directory"
+	scopeTab       = "tab"
 
 	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
 
@@ -85,17 +86,26 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 // scopeKeyPrefix returns the registry key namespace for scopeMode: "workspace:<id>:" by
-// default, or "directory:<focused pane cwd>:" when scopeMode is "directory". Directory scope
-// errors when the focused pane's cwd cannot be determined.
+// default, "directory:<focused pane cwd>:" when scopeMode is "directory", or
+// "tab:<workspace id>:<focused tab id>:" when scopeMode is "tab". Directory and tab scope error
+// when the focused pane's cwd or focused tab's id, respectively, cannot be determined.
 func scopeKeyPrefix(scopeMode, workspaceID string) (string, error) {
-	if scopeMode != scopeDirectory {
+	switch scopeMode {
+	case scopeDirectory:
+		cwd, err := focusedCwd()
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("directory:%s:", cwd), nil
+	case scopeTab:
+		tabID, err := focusedTabID()
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("tab:%s:%s:", workspaceID, tabID), nil
+	default:
 		return fmt.Sprintf("workspace:%s:", workspaceID), nil
 	}
-	cwd, err := focusedCwd()
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("directory:%s:", cwd), nil
 }
 
 // focusedCwd returns the focused pane's cwd from the plugin invocation context, erroring when
@@ -106,6 +116,16 @@ func focusedCwd() (string, error) {
 		return "", errors.New("could not determine the focused pane's cwd")
 	}
 	return cwd, nil
+}
+
+// focusedTabID returns the focused tab's id from the plugin invocation context, erroring when
+// it cannot be determined.
+func focusedTabID() (string, error) {
+	tabID := herdr.ContextField("tab_id")
+	if tabID == "" {
+		return "", errors.New("could not determine the focused tab's id")
+	}
+	return tabID, nil
 }
 
 // runToggle drives the hide/show/stale-recovery/open flow for one toggle invocation.
