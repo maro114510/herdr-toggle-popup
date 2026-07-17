@@ -15,10 +15,12 @@ import (
 // - workspace scope: execs tmux new-session -A with a stable session name derived from
 //   workspace:<workspace_id>:<entrypoint>, starting in the focused pane cwd
 // - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
+// - tab scope: derives the tmux session from tab:<workspace id>:<focused tab id>:<entrypoint>
 // - tmux status line is disabled before attaching to the popup session
 // - $SHELL unset: defaults the tmux command to /bin/zsh
 // - missing tmux: reports a clear error and never execs
 // - missing focused cwd: reports a clear error before execing tmux
+// - missing tab id (tab scope): reports a clear error before execing tmux
 
 const (
 	configDirEnvVar = "HERDR_PLUGIN_CONFIG_DIR"
@@ -130,6 +132,108 @@ func TestRunExecsTmuxSessionForDirectoryScope(t *testing.T) {
 	wantSession := sessionName("directory:/focused/cwd:shell")
 	if got := call.argv[4]; got != wantSession {
 		t.Errorf("session = %q, want %q", got, wantSession)
+	}
+}
+
+func TestTmuxSessionKeyTable(t *testing.T) {
+	const cwdOnlyContext = `{"focused_pane_cwd":"/focused/cwd"}`
+
+	tests := []struct {
+		name      string
+		scopeMode string
+		context   string
+		wantKey   string
+		wantErr   bool
+	}{
+		{
+			name:      "workspace",
+			scopeMode: "workspace",
+			context:   cwdOnlyContext,
+			wantKey:   "workspace:ws1:shell",
+			wantErr:   false,
+		},
+		{
+			name:      "directory",
+			scopeMode: "directory",
+			context:   cwdOnlyContext,
+			wantKey:   "directory:/focused/cwd:shell",
+			wantErr:   false,
+		},
+		{
+			name:      "tab",
+			scopeMode: scopeTab,
+			context:   `{"focused_pane_cwd":"/focused/cwd","tab_id":"tab1"}`,
+			wantKey:   "tab:ws1:tab1:shell",
+			wantErr:   false,
+		},
+		{
+			name:      "tab missing tab_id",
+			scopeMode: scopeTab,
+			context:   cwdOnlyContext,
+			wantKey:   "",
+			wantErr:   true,
+		},
+	}
+
+	t.Setenv(workspaceIDEnvVar, workspaceID)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(contextEnvVar, tt.context)
+			key, _, err := tmuxSessionKey(tt.scopeMode, defaultEntrypoint)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("err = nil, want an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("err = %v, want nil", err)
+			}
+			if key != tt.wantKey {
+				t.Errorf("key = %q, want %q", key, tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestRunExecsTmuxSessionForTabScope(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "scope = \"tab\"\n")
+	t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd","tab_id":"tab1"}`)
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	wantSession := sessionName("tab:ws1:tab1:shell")
+	if got := call.argv[4]; got != wantSession {
+		t.Errorf("session = %q, want %q", got, wantSession)
+	}
+}
+
+func TestRunMissingTabIDReportsErrorBeforeExec(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "scope = \"tab\"\n")
+	t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd"}`)
+
+	var stderr bytes.Buffer
+	execCalled := false
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), func(string, []string, []string) error {
+		execCalled = true
+		return nil
+	})
+
+	if code == 0 {
+		t.Fatal("exit code = 0, want non-zero")
+	}
+	if execCalled {
+		t.Error("exec was called despite missing tab id")
+	}
+	if stderr.Len() == 0 {
+		t.Error("stderr is empty, want an error message")
 	}
 }
 

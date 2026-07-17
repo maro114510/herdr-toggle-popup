@@ -33,6 +33,8 @@ import (
 // - unknown mode: rejected before touching the registry or calling herdr
 // - directory scoping: defaults to workspace, opt-in via config, independent per cwd, shared
 //   across workspaces, missing cwd fails before opening, force-close scopes to the directory
+// - tab scoping: independent per tab within the same workspace, missing tab_id fails before
+//   opening, force-close scopes to the tab
 // - nested popups: force-open stacks a second entrypoint; hiding the inner one leaves the outer
 //   entry and pane untouched
 // - popup size: no configured entrypoint issues no resize; configured steps run in order;
@@ -51,9 +53,14 @@ const (
 	testWorkspaceID     = "ws1"
 	testOtherWorkspace  = "ws2"
 	testCwd             = "/focused/cwd"
+	testTabID           = "tab1"
+	testOtherTabID      = "tab2"
+	testScopeWorkspace  = "workspace"
 
 	keyWorkspaceShell = "workspace:ws1:shell"
 	keyWorkspaceGit   = "workspace:ws1:git"
+	keyTabShell       = "tab:ws1:tab1:shell"
+	keyTabGit         = "tab:ws1:tab1:git"
 
 	testPaneExisting = "pane-existing"
 	testPaneA        = "pane-a"
@@ -886,6 +893,166 @@ func TestScopeDirectoryMissingCwdFailsBeforeOpen(t *testing.T) {
 	}
 	if strings.Contains(env.log(t), callPluginPaneOpen) {
 		t.Error("log contains plugin pane open, want none")
+	}
+}
+
+func TestScopeKeyPrefixTable(t *testing.T) {
+	tests := []struct {
+		name        string
+		scopeMode   string
+		workspaceID string
+		context     string
+		want        string
+		wantErr     bool
+	}{
+		{
+			name:        testScopeWorkspace,
+			scopeMode:   testScopeWorkspace,
+			workspaceID: testWorkspaceID,
+			context:     `{}`,
+			want:        "workspace:ws1:",
+			wantErr:     false,
+		},
+		{
+			name:        "directory",
+			scopeMode:   scopeDirectory,
+			workspaceID: testWorkspaceID,
+			context:     fmt.Sprintf(`{"focused_pane_cwd":%q}`, testCwd),
+			want:        "directory:/focused/cwd:",
+			wantErr:     false,
+		},
+		{
+			name:        "tab",
+			scopeMode:   scopeTab,
+			workspaceID: testWorkspaceID,
+			context:     fmt.Sprintf(`{"tab_id":%q}`, testTabID),
+			want:        "tab:ws1:tab1:",
+			wantErr:     false,
+		},
+		{
+			name:        "tab missing tab_id",
+			scopeMode:   scopeTab,
+			workspaceID: testWorkspaceID,
+			context:     `{}`,
+			want:        "",
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(contextEnvVar, tt.context)
+			got, err := scopeKeyPrefix(tt.scopeMode, tt.workspaceID)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("err = nil, want an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("err = %v, want nil", err)
+			}
+			if got != tt.want {
+				t.Errorf("got = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScopeTabRegistersUnderTabKey(t *testing.T) {
+	env := setupEnv(t)
+	writeScopeConfig(t, env, "tab")
+	t.Setenv(contextEnvVar, fmt.Sprintf(`{"workspace_id":%q,"focused_pane_cwd":%q,"tab_id":%q}`, testWorkspaceID, testCwd, testTabID))
+
+	code, stderr := invoke(testEntrypointShell)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+
+	entry, ok := env.entry(t, keyTabShell)
+	if !ok {
+		t.Fatal("tab-scoped entry not found")
+	}
+	if entry.Scope != "tab" {
+		t.Errorf("Scope = %q, want tab", entry.Scope)
+	}
+	if _, ok := env.entry(t, keyWorkspaceShell); ok {
+		t.Error("workspace-scoped entry found, want none")
+	}
+}
+
+func TestScopeTabTwoTabsIndependentEntries(t *testing.T) {
+	env := setupEnv(t)
+	writeScopeConfig(t, env, "tab")
+
+	t.Setenv(contextEnvVar, fmt.Sprintf(`{"workspace_id":%q,"focused_pane_cwd":%q,"tab_id":%q}`, testWorkspaceID, testCwd, testTabID))
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneA)
+	if code, stderr := invoke(testEntrypointShell); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+
+	t.Setenv(contextEnvVar, fmt.Sprintf(`{"workspace_id":%q,"focused_pane_cwd":%q,"tab_id":%q}`, testWorkspaceID, testCwd, testOtherTabID))
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneB)
+	if code, stderr := invoke(testEntrypointShell); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+
+	a, ok := env.entry(t, keyTabShell)
+	if !ok || a.PaneID != testPaneA {
+		t.Errorf("entry a = %+v, ok=%v, want pane-a", a, ok)
+	}
+	b, ok := env.entry(t, "tab:ws1:tab2:shell")
+	if !ok || b.PaneID != testPaneB {
+		t.Errorf("entry b = %+v, ok=%v, want pane-b", b, ok)
+	}
+}
+
+func TestScopeTabMissingTabIDFailsBeforeOpen(t *testing.T) {
+	env := setupEnv(t)
+	writeScopeConfig(t, env, "tab")
+	t.Setenv(contextEnvVar, fmt.Sprintf(`{"workspace_id":%q,"focused_pane_cwd":%q}`, testWorkspaceID, testCwd))
+
+	code, stderr := invoke(testEntrypointShell)
+	if code == 0 {
+		t.Fatal("code = 0, want non-zero")
+	}
+	if stderr == "" {
+		t.Error("stderr = empty, want a message")
+	}
+	if env.popupsFileExists() {
+		t.Error("popups.json exists, want none")
+	}
+	if strings.Contains(env.log(t), callPluginPaneOpen) {
+		t.Error("log contains plugin pane open, want none")
+	}
+}
+
+func TestModeForceCloseScopesToTab(t *testing.T) {
+	env := setupEnv(t)
+	writeScopeConfig(t, env, "tab")
+	t.Setenv(contextEnvVar, fmt.Sprintf(`{"workspace_id":%q,"focused_pane_cwd":%q,"tab_id":%q}`, testWorkspaceID, testCwd, testTabID))
+	env.seed(t, keyTabShell, testPaneA, "tab", testWorkspaceID)
+	env.seed(t, "tab:ws1:tab2:shell", "pane-other-tab", "tab", testWorkspaceID)
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneB)
+
+	code, stderr := invoke(testEntrypointGit, ModeForceClose)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+
+	if _, ok := env.entry(t, keyTabShell); ok {
+		t.Error("same-tab entry still present, want deleted")
+	}
+	if _, ok := env.entry(t, "tab:ws1:tab2:shell"); !ok {
+		t.Error("other-tab entry deleted, want untouched")
+	}
+
+	log := env.log(t)
+	if !strings.Contains(log, "plugin pane close pane-a\n") {
+		t.Errorf("log = %q, want a close call for pane-a", log)
+	}
+	if strings.Contains(log, "plugin pane close pane-other-tab") {
+		t.Error("log contains a close call for pane-other-tab, want none")
 	}
 }
 
