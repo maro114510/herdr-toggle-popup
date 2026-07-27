@@ -34,6 +34,7 @@ const tmuxAttachScript = `if ! "$4" -f /dev/null has-session -t "$1" 2>/dev/null
   "$4" -f /dev/null new-session -d -s "$1" -c "$2" "$3"
 fi
 "$4" -f /dev/null set-option -t "$1" status off
+"$4" -f /dev/null set-option -t "$1" mouse on
 exec "$4" -f /dev/null attach-session -t "$1"`
 
 type (
