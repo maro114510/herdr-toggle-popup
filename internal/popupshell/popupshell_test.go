@@ -248,6 +248,14 @@ func TestRunDisablesTmuxStatusBeforeAttaching(t *testing.T) {
 	}
 }
 
+func TestRunEnablesTmuxMouseModeBeforeAttaching(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(tmuxAttachScript, "set-option -t \"$1\" mouse on") {
+		t.Fatalf("tmux attach script = %q, want it to enable mouse mode on the target session", tmuxAttachScript)
+	}
+}
+
 func TestRunDefaultsToZshWhenShellUnset(t *testing.T) {
 	setupEnv(t)
 	t.Setenv(shellEnvVar, "")
