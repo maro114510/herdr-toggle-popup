@@ -87,6 +87,46 @@ func TestLoad_ScopeExplicitWorkspace(t *testing.T) {
 	}
 }
 
+func TestIsValidScope_Workspace(t *testing.T) {
+	t.Parallel()
+
+	if !IsValidScope("workspace") {
+		t.Error("IsValidScope(workspace) = false, want true")
+	}
+}
+
+func TestIsValidScope_Directory(t *testing.T) {
+	t.Parallel()
+
+	if !IsValidScope("directory") {
+		t.Error("IsValidScope(directory) = false, want true")
+	}
+}
+
+func TestIsValidScope_Tab(t *testing.T) {
+	t.Parallel()
+
+	if !IsValidScope("tab") {
+		t.Error("IsValidScope(tab) = false, want true")
+	}
+}
+
+func TestIsValidScope_Bogus(t *testing.T) {
+	t.Parallel()
+
+	if IsValidScope("bogus-scope") {
+		t.Error("IsValidScope(bogus-scope) = true, want false")
+	}
+}
+
+func TestIsValidScope_Empty(t *testing.T) {
+	t.Parallel()
+
+	if IsValidScope("") {
+		t.Error("IsValidScope(\"\") = true, want false")
+	}
+}
+
 func TestLoad_PopupSizeDottedKey(t *testing.T) {
 	t.Setenv(configDirEnvVar, writeConfigFile(t, `popup_size.shell = "right:0.5:3 down:0.5:3"`+"\n"))
 

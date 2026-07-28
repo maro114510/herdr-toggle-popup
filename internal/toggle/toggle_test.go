@@ -896,6 +896,49 @@ func TestScopeDirectoryMissingCwdFailsBeforeOpen(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses setupEnv, which mutates shared env vars via t.Setenv, not parallel-safe.
+func TestInvalidScopePrintsWarningAndFallsBackToWorkspace(t *testing.T) {
+	env := setupEnv(t)
+	writeScopeConfig(t, env, "bogus-scope")
+
+	code, stderr := invoke(testEntrypointShell)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	assertContainsAll(t, stderr, "invalid scope", "bogus-scope")
+
+	if _, ok := env.entry(t, keyWorkspaceShell); !ok {
+		t.Error("workspace-scoped entry not found, want fallback to workspace scope")
+	}
+}
+
+//nolint:paralleltest // uses setupEnv, which mutates shared env vars via t.Setenv, not parallel-safe.
+func TestValidScopePrintsNoWarning(t *testing.T) {
+	env := setupEnv(t)
+	writeScopeConfig(t, env, "directory")
+
+	code, stderr := invoke(testEntrypointShell)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	if strings.Contains(stderr, "invalid scope") {
+		t.Errorf("stderr = %q, want no invalid scope warning", stderr)
+	}
+}
+
+func TestUnsetScopePrintsNoWarning(t *testing.T) {
+	setupEnv(t)
+	t.Setenv(configDirEnvVar, "")
+
+	code, stderr := invoke(testEntrypointShell)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	if strings.Contains(stderr, "invalid scope") {
+		t.Errorf("stderr = %q, want no invalid scope warning", stderr)
+	}
+}
+
 func TestScopeKeyPrefixTable(t *testing.T) {
 	tests := []struct {
 		name        string
