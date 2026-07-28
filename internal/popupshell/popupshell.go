@@ -56,7 +56,11 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 		entrypoint = args[0]
 	}
 
-	sessionKey, cwd, err := tmuxSessionKey(config.Load().Scope, entrypoint)
+	cfg := config.Load()
+	if !config.IsValidScope(cfg.Scope) {
+		_, _ = fmt.Fprintf(stderr, "popup-shell: invalid scope %q in config; falling back to workspace scope\n", cfg.Scope)
+	}
+	sessionKey, cwd, err := tmuxSessionKey(cfg.Scope, entrypoint)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1

@@ -135,6 +135,60 @@ func TestRunExecsTmuxSessionForDirectoryScope(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunInvalidScopePrintsWarningAndFallsBackToWorkspace(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "scope = \"bogus-scope\"\n")
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "invalid scope") || !strings.Contains(stderr.String(), "bogus-scope") {
+		t.Errorf("stderr = %q, want it to contain an invalid scope warning mentioning bogus-scope", stderr.String())
+	}
+	wantSession := sessionName("workspace:ws1:shell")
+	if got := call.argv[4]; got != wantSession {
+		t.Errorf("session = %q, want %q (fallback to workspace scope)", got, wantSession)
+	}
+}
+
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunValidScopePrintsNoWarning(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "scope = \"directory\"\n")
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "invalid scope") {
+		t.Errorf("stderr = %q, want no invalid scope warning", stderr.String())
+	}
+}
+
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunUnsetScopePrintsNoWarning(t *testing.T) {
+	setupEnv(t)
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "invalid scope") {
+		t.Errorf("stderr = %q, want no invalid scope warning", stderr.String())
+	}
+}
+
 func TestTmuxSessionKeyTable(t *testing.T) {
 	const cwdOnlyContext = `{"focused_pane_cwd":"/focused/cwd"}`
 

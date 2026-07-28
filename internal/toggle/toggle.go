@@ -69,6 +69,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	cfg := config.Load()
+	if !config.IsValidScope(cfg.Scope) {
+		_, _ = fmt.Fprintf(stderr, "toggle: invalid scope %q in config; falling back to workspace scope\n", cfg.Scope)
+	}
 	keyPrefix, err := scopeKeyPrefix(cfg.Scope, workspaceID)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)

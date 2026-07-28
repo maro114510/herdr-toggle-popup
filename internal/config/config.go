@@ -15,6 +15,8 @@ import (
 const (
 	configDirEnvVar = "HERDR_PLUGIN_CONFIG_DIR"
 	defaultScope    = "workspace"
+	scopeDirectory  = "directory"
+	scopeTab        = "tab"
 
 	// stepFields is the number of colon-separated fields a size step splits into: direction,
 	// amount, and count (with any extra colons folded into count, matching bash's `read`).
@@ -52,6 +54,16 @@ func Load() Config {
 		scope = defaultScope
 	}
 	return Config{Scope: scope, PopupSize: parsed.PopupSize}
+}
+
+// IsValidScope reports whether scope is a recognized value: "workspace", "directory", or "tab".
+func IsValidScope(scope string) bool {
+	switch scope {
+	case defaultScope, scopeDirectory, scopeTab:
+		return true
+	default:
+		return false
+	}
 }
 
 // PopupSizeSteps returns the raw popup_size.<entrypoint> value, or "" when absent.
