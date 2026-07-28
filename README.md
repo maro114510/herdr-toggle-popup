@@ -99,6 +99,16 @@ An entrypoint with no `popup_size` key opens exactly as it does today.
 Each Herdr CLI call times out after 5 seconds by default.
 Set `HERDR_COMMAND_TIMEOUT` to a Go duration such as `2s`, `500ms`, or `1m` to override it.
 
+## Pruning stale registry entries
+
+If herdr crashes before emitting a `pane.closed` event, a registry entry can be left pointing at a pane that no longer exists. Toggling that entrypoint again already recovers from this automatically, but the `gc` command prunes such entries without needing to toggle first:
+
+```bash
+"$HERDR_PLUGIN_ROOT/bin/toggle-popup" gc
+```
+
+It reports the number of entries removed on stdout. Popups currently hidden (visible again on the next toggle) are left untouched.
+
 ## Diagnostics
 
 Run the doctor command when collecting details for install or runtime support:
