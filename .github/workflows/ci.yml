@@ -50,6 +50,10 @@ jobs:
         run: go vet ./...
       - name: Run go test
         run: go test -coverprofile=coverage.out ./...
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
 
   golangci-lint:
