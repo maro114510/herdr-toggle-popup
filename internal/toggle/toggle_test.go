@@ -2,13 +2,17 @@ package toggle
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/maro114510/herdr-toggle-popup/internal/clock"
+	"github.com/maro114510/herdr-toggle-popup/internal/herdr"
 	"github.com/maro114510/herdr-toggle-popup/internal/state"
 )
 
@@ -63,6 +67,7 @@ const (
 	keyTabGit         = "tab:ws1:tab1:git"
 
 	testPaneExisting = "pane-existing"
+	testPaneNew      = "pane-42"
 	testPaneA        = "pane-a"
 	testPaneB        = "pane-b"
 	testPaneOuter    = "pane-outer"
@@ -194,7 +199,7 @@ func assertStringPointerEquals(t *testing.T, field string, got *string, want str
 
 func TestOpensNewPopupAndSavesItsPaneID(t *testing.T) {
 	env := setupEnv(t)
-	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneNew)
 	t.Setenv("STUB_HERDR_OPEN_TAB_ID", "tab-7")
 
 	code, stderr := invoke(testEntrypointShell)
@@ -206,7 +211,7 @@ func TestOpensNewPopupAndSavesItsPaneID(t *testing.T) {
 	if !ok {
 		t.Fatal("entry not found")
 	}
-	if entry.PaneID != "pane-42" {
+	if entry.PaneID != testPaneNew {
 		t.Errorf("PaneID = %q, want pane-42", entry.PaneID)
 	}
 	if entry.PluginID != pluginID {
@@ -223,6 +228,43 @@ func TestOpensNewPopupAndSavesItsPaneID(t *testing.T) {
 
 	if strings.Contains(env.log(t), callPluginPaneClose) {
 		t.Error("log contains plugin pane close, want none")
+	}
+}
+
+// TestOpenPopupLockedRecordsGenuineMillisecondPrecision calls openPopupLocked directly (rather
+// than through invoke/Run) because Run builds its own context.Background() internally with no
+// seam for a caller to pin the clock used inside it.
+func TestOpenPopupLockedRecordsGenuineMillisecondPrecision(t *testing.T) {
+	env := setupEnv(t)
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneNew)
+	t.Setenv("STUB_HERDR_OPEN_TAB_ID", "tab-7")
+
+	fixedTime := time.Date(2024, 1, 1, 0, 0, 0, 123_000_000, time.UTC)
+	ctx := clock.SetNowToContext(context.Background(), fixedTime)
+
+	store := state.NewStore(env.stateDir)
+	client := herdr.NewClient()
+	var errBuf bytes.Buffer
+
+	code, paneID := openPopupLocked(ctx, store, client, &errBuf, keyWorkspaceShell, testEntrypointShell, testScopeWorkspace, testWorkspaceID)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, errBuf.String())
+	}
+	if paneID != testPaneNew {
+		t.Fatalf("paneID = %q, want %q", paneID, testPaneNew)
+	}
+
+	entry, ok := env.entry(t, keyWorkspaceShell)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+
+	want := fixedTime.UnixMilli()
+	if entry.CreatedAtUnixMs != want {
+		t.Errorf("CreatedAtUnixMs = %d, want %d", entry.CreatedAtUnixMs, want)
+	}
+	if entry.CreatedAtUnixMs%1000 == 0 {
+		t.Fatal("CreatedAtUnixMs is a multiple of 1000, want genuine millisecond precision")
 	}
 }
 
@@ -1188,7 +1230,7 @@ func TestModeForceCloseScopesToDirectory(t *testing.T) {
 
 func TestPopupSizeNoEntryNoResizeCalls(t *testing.T) {
 	env := setupEnv(t)
-	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneNew)
 
 	code, stderr := invoke(testEntrypointShell)
 	if code != 0 {
@@ -1202,7 +1244,7 @@ func TestPopupSizeNoEntryNoResizeCalls(t *testing.T) {
 func TestPopupSizeRunsConfiguredSequence(t *testing.T) {
 	env := setupEnv(t)
 	writeSizeConfig(t, env, testEntrypointShell, "right:0.5:2 down:0.25:1")
-	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneNew)
 
 	code, stderr := invoke(testEntrypointShell)
 	if code != 0 {
@@ -1233,7 +1275,7 @@ func TestPopupSizeRunsConfiguredSequence(t *testing.T) {
 func TestPopupSizeDifferentEntrypointNotApplied(t *testing.T) {
 	env := setupEnv(t)
 	writeSizeConfig(t, env, testEntrypointGit, "right:0.5:2")
-	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneNew)
 
 	code, stderr := invoke(testEntrypointShell)
 	if code != 0 {
@@ -1247,7 +1289,7 @@ func TestPopupSizeDifferentEntrypointNotApplied(t *testing.T) {
 func TestPopupSizeMalformedStepSkipped(t *testing.T) {
 	env := setupEnv(t)
 	writeSizeConfig(t, env, testEntrypointShell, "sideways:0.5:2 right:notanumber:2 down:0.5:0 up:0.5:1")
-	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneNew)
 
 	code, stderr := invoke(testEntrypointShell)
 	if code != 0 {
@@ -1269,7 +1311,7 @@ func TestPopupSizeMalformedStepSkipped(t *testing.T) {
 func TestPopupSizeResizeFailureDoesNotFailToggle(t *testing.T) {
 	env := setupEnv(t)
 	writeSizeConfig(t, env, testEntrypointShell, "right:0.5:1")
-	t.Setenv("STUB_HERDR_OPEN_PANE_ID", "pane-42")
+	t.Setenv("STUB_HERDR_OPEN_PANE_ID", testPaneNew)
 	t.Setenv("STUB_HERDR_RESIZE_EXIT", "1")
 
 	code, stderr := invoke(testEntrypointShell)
@@ -1278,7 +1320,7 @@ func TestPopupSizeResizeFailureDoesNotFailToggle(t *testing.T) {
 	}
 
 	entry, ok := env.entry(t, keyWorkspaceShell)
-	if !ok || entry.PaneID != "pane-42" {
+	if !ok || entry.PaneID != testPaneNew {
 		t.Errorf("entry = %+v, ok=%v, want pane-42", entry, ok)
 	}
 }
