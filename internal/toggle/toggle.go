@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
+	"github.com/maro114510/herdr-toggle-popup/internal/clock"
 	"github.com/maro114510/herdr-toggle-popup/internal/config"
 	"github.com/maro114510/herdr-toggle-popup/internal/herdr"
 	"github.com/maro114510/herdr-toggle-popup/internal/state"
@@ -31,8 +31,6 @@ const (
 	scopeTab       = "tab"
 
 	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
-
-	msPerSecond = 1000
 )
 
 // Run implements the `toggle` subcommand: args is
@@ -246,7 +244,7 @@ func openPopupLocked(
 		Scope:           scopeMode,
 		WorkspaceID:     &workspaceID,
 		TabID:           tabIDPointer(tabID),
-		CreatedAtUnixMs: time.Now().Unix() * msPerSecond,
+		CreatedAtUnixMs: clock.Now(ctx).UnixMilli(),
 		Hidden:          nil,
 	}
 	if err := store.Set(key, entry); err != nil {
