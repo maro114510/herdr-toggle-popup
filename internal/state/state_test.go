@@ -622,6 +622,93 @@ func TestDeleteByPaneID_EmptyRegistry_NoError(t *testing.T) {
 	}
 }
 
+func TestDeleteVisibleByPaneID_RemovesMatchingNonHidden(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newTestStore(t)
+	if err := store.Set("ws1", newEntry(testPaneID1)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteVisibleByPaneID(testPaneID1); err != nil {
+		t.Fatalf("DeleteVisibleByPaneID() error = %v", err)
+	}
+
+	_, ok, _ := store.Get("ws1")
+	if ok {
+		t.Error("Get() ok = true after DeleteVisibleByPaneID, want false")
+	}
+}
+
+func TestDeleteVisibleByPaneID_LeavesHiddenUntouched(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newTestStore(t)
+	if err := store.Set("ws1", newEntry(testPaneID1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHidden("ws1", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteVisibleByPaneID(testPaneID1); err != nil {
+		t.Fatalf("DeleteVisibleByPaneID() error = %v", err)
+	}
+
+	got, ok, _ := store.Get("ws1")
+	if !ok || got.Hidden == nil || !*got.Hidden {
+		t.Errorf("Get() = %+v, ok=%v, want hidden entry untouched", got, ok)
+	}
+}
+
+func TestDeleteVisibleByPaneID_LeavesOthersUntouched(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newTestStore(t)
+	if err := store.Set("ws1", newEntry(testPaneID1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("ws2", newEntry(testPaneID2)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteVisibleByPaneID(testPaneID1); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok, _ := store.Get("ws2")
+	if !ok || got.PaneID != testPaneID2 {
+		t.Errorf("Get(ws2) = %+v, ok=%v, want %s untouched", got, ok, testPaneID2)
+	}
+}
+
+func TestDeleteVisibleByPaneID_NoMatch_NoError(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newTestStore(t)
+	if err := store.Set("ws1", newEntry(testPaneID1)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteVisibleByPaneID("pane-missing"); err != nil {
+		t.Errorf("DeleteVisibleByPaneID() error = %v, want nil", err)
+	}
+	_, ok, _ := store.Get("ws1")
+	if !ok {
+		t.Error("unrelated entry was removed")
+	}
+}
+
+func TestDeleteVisibleByPaneID_EmptyRegistry_NoError(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newTestStore(t)
+
+	if err := store.DeleteVisibleByPaneID(testPaneID1); err != nil {
+		t.Errorf("DeleteVisibleByPaneID() error = %v, want nil on empty registry", err)
+	}
+}
+
 func TestSetHidden_SetsFlagWithoutTouchingOtherFields(t *testing.T) {
 	t.Parallel()
 
