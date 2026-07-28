@@ -22,7 +22,10 @@ jobs:
           fail_level: any
 
   go:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       pull-requests: write
       contents: read
@@ -54,7 +57,8 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
-      - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
+      - if: matrix.os == 'ubuntu-latest'
+        uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
 
   golangci-lint:
     runs-on: ubuntu-latest
