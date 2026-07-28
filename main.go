@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/maro114510/herdr-toggle-popup/internal/doctor"
+	"github.com/maro114510/herdr-toggle-popup/internal/gc"
 	"github.com/maro114510/herdr-toggle-popup/internal/onpaneclosed"
 	"github.com/maro114510/herdr-toggle-popup/internal/ontabfocused"
 	"github.com/maro114510/herdr-toggle-popup/internal/popupshell"
@@ -20,6 +21,7 @@ const (
 	cmdOnPaneClosed = "on-pane-closed"
 	cmdOnTabFocused = "on-tab-focused"
 	cmdPopupShell   = "popup-shell"
+	cmdGc           = "gc"
 	cmdDoctor       = "doctor"
 	cmdVersion      = "version"
 )
@@ -31,6 +33,7 @@ Commands:
   on-pane-closed   Handle a pane-closed event
   on-tab-focused   Handle a tab-focused event
   popup-shell      Run the shell inside the popup pane
+  gc               Prune registry entries whose pane no longer exists
   doctor           Print safe diagnostics for support
   version          Print the toggle-popup version
 `
@@ -69,6 +72,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 		newDispatchCmd(cmdOnPaneClosed, "Handle a pane-closed event", onpaneclosed.Run),
 		newDispatchCmd(cmdOnTabFocused, "Handle a tab-focused event", ontabfocused.Run),
 		newDispatchCmd(cmdPopupShell, "Run the shell inside the popup pane", popupshell.Run),
+		newDispatchCmd(cmdGc, "Prune registry entries whose pane no longer exists", gc.Run),
 		newDoctorCmd(),
 		newVersionCmd(),
 	)

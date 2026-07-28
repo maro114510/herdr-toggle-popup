@@ -117,6 +117,25 @@ func TestRun_OnTabFocusedDispatchesToOnTabFocusedSubcommand(t *testing.T) {
 	}
 }
 
+// gc is wired to internal/gc.Run (see internal/gc for its own test suite); this only asserts
+// main.go actually dispatches to it, using a missing-state-dir error to get a gc-specific
+// message without needing a real registry.
+func TestRun_GcDispatchesToGcSubcommand(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdGc}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero when HERDR_PLUGIN_STATE_DIR is unset")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.HasPrefix(stderr.String(), "gc:") {
+		t.Errorf("stderr = %q, want a gc-prefixed error, confirming dispatch", stderr.String())
+	}
+}
+
 // popup-shell is wired to internal/popupshell.Run (see internal/popupshell for its own test
 // suite, including one that proves it really execs and replaces the process); this only
 // asserts main.go actually dispatches to it. A nonexistent $SHELL fails before any exec is
