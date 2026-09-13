@@ -37,12 +37,10 @@ type manifest struct {
 		ID        string   `toml:"id"`
 		Title     string   `toml:"title"`
 		Placement string   `toml:"placement"`
+		Width     string   `toml:"width"`
+		Height    string   `toml:"height"`
 		Command   []string `toml:"command"`
 	} `toml:"panes"`
-	Events []struct {
-		On      string   `toml:"on"`
-		Command []string `toml:"command"`
-	} `toml:"events"`
 }
 
 type keybindings struct {
@@ -100,8 +98,8 @@ func TestManifestPluginMetadata(t *testing.T) {
 	if m.Name != "Toggle Popup" {
 		t.Errorf("Name = %q, want %q", m.Name, "Toggle Popup")
 	}
-	if m.MinHerdrVersion != "0.7.0" {
-		t.Errorf("MinHerdrVersion = %q, want %q", m.MinHerdrVersion, "0.7.0")
+	if m.MinHerdrVersion != "0.9.0" {
+		t.Errorf("MinHerdrVersion = %q, want %q", m.MinHerdrVersion, "0.9.0")
 	}
 	wantPlatforms := []string{"macos", "linux"}
 	if !reflect.DeepEqual(m.Platforms, wantPlatforms) {
@@ -203,8 +201,11 @@ func TestManifestShellPane(t *testing.T) {
 	if p.Title != "Popup Shell" {
 		t.Errorf("Title = %q, want %q", p.Title, "Popup Shell")
 	}
-	if p.Placement != "overlay" {
-		t.Errorf("Placement = %q, want %q", p.Placement, "overlay")
+	if p.Placement != "popup" {
+		t.Errorf("Placement = %q, want %q", p.Placement, "popup")
+	}
+	if p.Width != "100%" || p.Height != "100%" {
+		t.Errorf("size = %q x %q, want 100%% x 100%%", p.Width, p.Height)
 	}
 	// Herdr starts panes in the target cwd, not the plugin root, so the pane command must resolve
 	// the binary through HERDR_PLUGIN_ROOT. Keep this assertion strict so a direct ./bin/toggle-popup
@@ -212,47 +213,6 @@ func TestManifestShellPane(t *testing.T) {
 	wantCommand := []string{"sh", "-c", paneBinaryShell}
 	if !reflect.DeepEqual(p.Command, wantCommand) {
 		t.Errorf("Command = %v, want %v", p.Command, wantCommand)
-	}
-}
-
-// TestManifestPaneClosedEvent ports "manifest declares the pane.closed event hook" from
-// tests/manifest.bats, updated to expect the Go binary instead of bash.
-func TestManifestPaneClosedEvent(t *testing.T) {
-	t.Parallel()
-
-	m := loadManifest(t)
-
-	if len(m.Events) != 2 {
-		t.Fatalf("len(Events) = %d, want 2", len(m.Events))
-	}
-	e := m.Events[0]
-	if e.On != "pane.closed" {
-		t.Errorf("On = %q, want %q", e.On, "pane.closed")
-	}
-	wantCommand := []string{toggleBinary, "on-pane-closed"}
-	if !reflect.DeepEqual(e.Command, wantCommand) {
-		t.Errorf("Command = %v, want %v", e.Command, wantCommand)
-	}
-}
-
-// TestManifestTabFocusedEvent asserts the manifest declares the tab.focused event hook that
-// hides a registered popup when the user navigates away from its tab via the sidebar or any
-// other means that changes focus without invoking `toggle` or killing the popup pane.
-func TestManifestTabFocusedEvent(t *testing.T) {
-	t.Parallel()
-
-	m := loadManifest(t)
-
-	if len(m.Events) != 2 {
-		t.Fatalf("len(Events) = %d, want 2", len(m.Events))
-	}
-	e := m.Events[1]
-	if e.On != "tab.focused" {
-		t.Errorf("On = %q, want %q", e.On, "tab.focused")
-	}
-	wantCommand := []string{toggleBinary, "on-tab-focused"}
-	if !reflect.DeepEqual(e.Command, wantCommand) {
-		t.Errorf("Command = %v, want %v", e.Command, wantCommand)
 	}
 }
 

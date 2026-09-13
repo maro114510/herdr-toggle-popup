@@ -1,7 +1,7 @@
 id = "maro114510.toggle-popup"
 name = "Toggle Popup"
 version = "0.4.1"
-min_herdr_version = "0.7.0"
+min_herdr_version = "0.9.0"
 platforms = ["macos", "linux"]
 
 [[build]]
@@ -16,13 +16,7 @@ command = ["./bin/toggle-popup", "toggle", "shell"]
 [[panes]]
 id = "shell"
 title = "Popup Shell"
-placement = "overlay"
+placement = "popup"
+width = "100%"
+height = "100%"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/toggle-popup\" popup-shell shell"]
-
-[[events]]
-on = "pane.closed"
-command = ["./bin/toggle-popup", "on-pane-closed"]
-
-[[events]]
-on = "tab.focused"
-command = ["./bin/toggle-popup", "on-tab-focused"]

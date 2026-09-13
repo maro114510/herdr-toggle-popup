@@ -1,6 +1,4 @@
-// Package toggle implements the `toggle` subcommand: open-or-toggle logic, scope keying,
-// close-to-hide behavior backed by a tmux session, stale-entry recovery, force modes, and
-// best-effort resizing. It composes the state, config, and herdr packages.
+// Package toggle opens the shell in a native full-screen Herdr popup.
 package toggle
 
 import (
@@ -9,273 +7,134 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
-	"github.com/maro114510/herdr-toggle-popup/internal/clock"
 	"github.com/maro114510/herdr-toggle-popup/internal/config"
 	"github.com/maro114510/herdr-toggle-popup/internal/herdr"
 	"github.com/maro114510/herdr-toggle-popup/internal/state"
 )
 
 const (
-	pluginID = "maro114510.toggle-popup"
-
-	// ModeSwitch is the default mode: another entrypoint's popup is left untouched.
-	ModeSwitch = "switch"
-	// ModeForceClose closes every other entrypoint's popup under the same scope before opening.
-	ModeForceClose = "force-close"
-	// ModeForceOpen behaves like switch but is a distinct, explicit opt-in to stacking popups.
-	ModeForceOpen = "force-open"
-
-	scopeDirectory = "directory"
-	scopeTab       = "tab"
-
+	pluginID          = "maro114510.toggle-popup"
+	stateDirEnvVar    = "HERDR_PLUGIN_STATE_DIR"
 	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
 )
 
-// Run implements the `toggle` subcommand: args is
-// <entrypoint> [switch|force-close|force-open].
+// Run opens a native Herdr popup for entrypoint. While it is visible, Herdr routes Alt+L to the
+// attached tmux client; popupshell binds that key to detach only the current client, which closes
+// the popup while keeping its named tmux session alive. Once closed, Alt+L reaches this action
+// again and reopens the same scoped session.
 func Run(args []string, stdout, stderr io.Writer) int {
 	_ = stdout
-
-	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: toggle-popup toggle <entrypoint> [switch|force-close|force-open]")
-		return 1
-	}
-	entrypoint := args[0]
-
-	mode := ModeSwitch
-	if len(args) > 1 {
-		mode = args[1]
-	}
-
-	workspaceID := os.Getenv(workspaceIDEnvVar)
-	if workspaceID == "" {
-		_, _ = fmt.Fprintf(stderr, "toggle: %s must be set\n", workspaceIDEnvVar)
+	if len(args) != 1 || args[0] == "" {
+		_, _ = fmt.Fprintln(stderr, "usage: toggle-popup toggle <entrypoint>")
 		return 1
 	}
 
-	switch mode {
-	case ModeSwitch, ModeForceClose, ModeForceOpen:
-	default:
-		_, _ = fmt.Fprintf(stderr, "toggle: invalid mode: %s (expected switch, force-close, or force-open)\n", mode)
-		return 1
-	}
-
-	stateDir, err := state.StateDirFromEnv()
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
-		return 1
-	}
-
-	cfg := config.Load()
-	if !config.IsValidScope(cfg.Scope) {
-		_, _ = fmt.Fprintf(stderr, "toggle: invalid scope %q in config; falling back to workspace scope\n", cfg.Scope)
-	}
-	keyPrefix, err := scopeKeyPrefix(cfg.Scope, workspaceID)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
-		return 1
-	}
-
-	store := state.NewStore(stateDir)
-	client := herdr.NewClient()
-	// The Herdr client applies a per-command timeout to this root invocation context.
-	ctx := context.Background()
-
-	return runToggle(ctx, store, client, cfg, stderr, entrypoint, mode, keyPrefix, cfg.Scope, workspaceID)
-}
-
-// scopeKeyPrefix returns the registry key namespace for scopeMode: "workspace:<id>:" by
-// default, "directory:<focused pane cwd>:" when scopeMode is "directory", or
-// "tab:<workspace id>:<focused tab id>:" when scopeMode is "tab". Directory and tab scope error
-// when the focused pane's cwd or focused tab's id, respectively, cannot be determined.
-func scopeKeyPrefix(scopeMode, workspaceID string) (string, error) {
-	switch scopeMode {
-	case scopeDirectory:
-		cwd, err := focusedCwd()
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("directory:%s:", cwd), nil
-	case scopeTab:
-		tabID, err := focusedTabID()
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("tab:%s:%s:", workspaceID, tabID), nil
-	default:
-		return fmt.Sprintf("workspace:%s:", workspaceID), nil
-	}
-}
-
-// focusedCwd returns the focused pane's cwd from the plugin invocation context, erroring when
-// it cannot be determined.
-func focusedCwd() (string, error) {
 	cwd := herdr.ContextField("focused_pane_cwd")
 	if cwd == "" {
-		return "", errors.New("could not determine the focused pane's cwd")
-	}
-	return cwd, nil
-}
-
-// focusedTabID returns the focused tab's id from the plugin invocation context, erroring when
-// it cannot be determined.
-func focusedTabID() (string, error) {
-	tabID := herdr.ContextField("tab_id")
-	if tabID == "" {
-		return "", errors.New("could not determine the focused tab's id")
-	}
-	return tabID, nil
-}
-
-// runToggle drives the hide/show/stale-recovery/open flow for one toggle invocation.
-func runToggle(
-	ctx context.Context, store *state.Store, client *herdr.Client, cfg config.Config, stderr io.Writer,
-	entrypoint, mode, keyPrefix, scopeMode, workspaceID string,
-) int {
-	key := keyPrefix + entrypoint
-	var resizePaneID string
-
-	var code int
-	// WithLock releases the registry lock as soon as this callback returns.
-	// Keep only the state-dependent pane operations inside; cosmetic sizing runs after unlock.
-	if err := store.WithLock(func() error {
-		code, resizePaneID = runToggleLocked(ctx, store, client, stderr, key, entrypoint, mode, keyPrefix, scopeMode, workspaceID)
-		return nil
-	}); err != nil {
-		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
+		_, _ = fmt.Fprintln(stderr, "toggle: could not determine the focused pane's cwd")
 		return 1
 	}
-	if code == 0 && resizePaneID != "" {
-		applySize(ctx, client, cfg, entrypoint, resizePaneID)
-	}
-	return code
-}
 
-// runToggleLocked drives the state-dependent toggle flow while the registry lock is held.
-// It returns the opened pane id when post-registration sizing should run after unlock.
-func runToggleLocked(
-	ctx context.Context, store *state.Store, client *herdr.Client, stderr io.Writer,
-	key, entrypoint, mode, keyPrefix, scopeMode, workspaceID string,
-) (int, string) {
-	entry, ok, err := store.Get(key)
+	ctx := context.Background()
+	client := herdr.NewClient()
+	closedLegacy, err := closeVisibleLegacyOverlay(ctx, client, args[0], cwd)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
-		return 1, ""
-	}
-
-	if ok {
-		if entry.Hidden != nil && *entry.Hidden {
-			return openPopupLocked(ctx, store, client, stderr, key, entrypoint, scopeMode, workspaceID)
-		}
-		if client.PaneExists(ctx, entry.PaneID) {
-			return toggleLivePane(ctx, store, client, stderr, key, entry), ""
-		}
-		// The registered pane no longer exists; drop the stale entry and open a fresh popup.
-		if err := store.Delete(key); err != nil {
-			_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
-			return 1, ""
-		}
-	}
-
-	if mode == ModeForceClose {
-		closeOtherPopups(ctx, store, client, keyPrefix, key)
-	}
-
-	return openPopupLocked(ctx, store, client, stderr, key, entrypoint, scopeMode, workspaceID)
-}
-
-// toggleLivePane hides a visible popup by marking it hidden and closing the Herdr pane. The
-// shell session survives in tmux; the Herdr pane must disappear completely so no border or zoom
-// indicator remains. On close failure, the hidden flag is rolled back and the live pane is left
-// unchanged.
-func toggleLivePane(ctx context.Context, store *state.Store, client *herdr.Client, stderr io.Writer, key string, entry state.Entry) int {
-	if err := store.SetHidden(key, true); err != nil {
-		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
 		return 1
 	}
-	if err := client.PluginPaneClose(ctx, entry.PaneID); err != nil {
-		if rollbackErr := store.SetHidden(key, false); rollbackErr != nil {
-			_, _ = fmt.Fprintf(stderr, "toggle: %v\n", rollbackErr)
-			return 1
-		}
-		_, _ = fmt.Fprintf(stderr, "toggle: could not hide the popup (pane %s); leaving it visible: %v\n", entry.PaneID, err)
+	if closedLegacy {
 		return 0
+	}
+	if err := client.PluginPopupOpen(ctx, pluginID, args[0], cwd); err != nil {
+		_, _ = fmt.Fprintf(stderr, "toggle: failed to open popup: %v\n", err)
+		return 1
 	}
 	return 0
 }
 
-// closeOtherPopups closes every other entrypoint's popup registered under keyPrefix (excluding
-// excludeKey), deleting each registry entry regardless of whether the close call succeeds.
-func closeOtherPopups(ctx context.Context, store *state.Store, client *herdr.Client, keyPrefix, excludeKey string) {
-	reg, err := store.Read()
-	if err != nil {
-		return
+// closeVisibleLegacyOverlay is a one-way migration guard. Versions before 0.4.1 opened a
+// zoomed overlay and recorded its pane ID. If such an overlay is still visible when the updated
+// action first runs, close it instead of opening a native popup on top of it. Native popups are
+// not added to this registry.
+func closeVisibleLegacyOverlay(ctx context.Context, client *herdr.Client, entrypoint, cwd string) (bool, error) {
+	stateDir := os.Getenv(stateDirEnvVar)
+	if stateDir == "" {
+		return false, nil
 	}
-	for otherKey, entry := range reg.Popups {
-		if otherKey == excludeKey || !strings.HasPrefix(otherKey, keyPrefix) {
-			continue
+
+	key, err := legacyStateKey(entrypoint, cwd)
+	if err != nil {
+		return false, fmt.Errorf("could not determine legacy popup scope: %w", err)
+	}
+	store := state.NewStore(stateDir)
+	entry, found, err := store.Get(key)
+	if err != nil {
+		return false, err
+	}
+	if !legacyEntryIsVisible(entrypoint, entry, found) {
+		return false, nil
+	}
+	return closeLegacyOverlay(ctx, client, store, key, entry)
+}
+
+func legacyEntryIsVisible(entrypoint string, entry state.Entry, found bool) bool {
+	return found && (entry.Hidden == nil || !*entry.Hidden) && entry.PluginID == pluginID && entry.Entrypoint == entrypoint
+}
+
+func closeLegacyOverlay(ctx context.Context, client *herdr.Client, store *state.Store, key string, entry state.Entry) (bool, error) {
+	if !client.PaneExists(ctx, entry.PaneID) {
+		if err := store.Delete(key); err != nil {
+			return false, err
 		}
-		_ = client.PluginPaneClose(ctx, entry.PaneID)
-		_ = store.Delete(otherKey)
+		return false, nil
 	}
-}
-
-// openPopupLocked opens a new popup pane at the focused pane's cwd and registers it under key.
-// The caller must hold the registry lock, then run cosmetic sizing after unlock.
-func openPopupLocked(
-	ctx context.Context, store *state.Store, client *herdr.Client, stderr io.Writer,
-	key, entrypoint, scopeMode, workspaceID string,
-) (int, string) {
-	cwd, err := focusedCwd()
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
-		return 1, ""
+	if err := store.SetHidden(key, true); err != nil {
+		return false, err
 	}
-
-	paneID, tabID, err := client.PluginPaneOpen(ctx, pluginID, entrypoint, cwd)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "toggle: failed to open popup pane: %v\n", err)
-		return 1, ""
-	}
-
-	entry := state.Entry{
-		PaneID:          paneID,
-		PluginID:        pluginID,
-		Entrypoint:      entrypoint,
-		Scope:           scopeMode,
-		WorkspaceID:     &workspaceID,
-		TabID:           tabIDPointer(tabID),
-		CreatedAtUnixMs: clock.Now(ctx).UnixMilli(),
-		Hidden:          nil,
-	}
-	if err := store.Set(key, entry); err != nil {
-		_ = client.PluginPaneClose(ctx, paneID)
-		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
-		return 1, ""
-	}
-
-	return 0, paneID
-}
-
-// tabIDPointer returns nil for an empty tabID (a herdr response that omitted tab_id) so
-// state.Entry.TabID stays absent rather than a pointer to an empty string, matching how a
-// popup with no known tab is treated as unknown, not "in tab \"\"", by on-tab-focused.
-func tabIDPointer(tabID string) *string {
-	if tabID == "" {
-		return nil
-	}
-	return &tabID
-}
-
-// applySize runs the configured popup_size.<entrypoint> steps against the newly opened pane.
-// Best-effort: resize failures are ignored, sizing must never fail the toggle.
-func applySize(ctx context.Context, client *herdr.Client, cfg config.Config, entrypoint, paneID string) {
-	steps := config.ParseSizeSteps(cfg.PopupSizeSteps(entrypoint))
-	for _, step := range steps {
-		for range step.Count {
-			_ = client.PaneResize(ctx, paneID, step.Direction, step.Amount)
+	if err := client.PluginPaneClose(ctx, entry.PaneID); err != nil {
+		if rollbackErr := store.SetHidden(key, false); rollbackErr != nil {
+			return false, fmt.Errorf("could not close legacy overlay pane %s: %w", entry.PaneID, errors.Join(err, fmt.Errorf("could not restore its visible state: %w", rollbackErr)))
 		}
+		return false, fmt.Errorf("could not close legacy overlay pane %s: %w", entry.PaneID, err)
 	}
+	return true, nil
+}
+
+func legacyStateKey(entrypoint, cwd string) (string, error) {
+	scope := config.Load().Scope
+	if !config.IsValidScope(scope) {
+		scope = "workspace"
+	}
+	switch scope {
+	case "directory":
+		return fmt.Sprintf("directory:%s:%s", cwd, entrypoint), nil
+	case "tab":
+		workspaceID, err := workspaceIDFromContext()
+		if err != nil {
+			return "", err
+		}
+		tabID := herdr.ContextField("tab_id")
+		if tabID == "" {
+			return "", errors.New("could not determine the focused tab's id")
+		}
+		return fmt.Sprintf("tab:%s:%s:%s", workspaceID, tabID, entrypoint), nil
+	default:
+		workspaceID, err := workspaceIDFromContext()
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("workspace:%s:%s", workspaceID, entrypoint), nil
+	}
+}
+
+func workspaceIDFromContext() (string, error) {
+	workspaceID := os.Getenv(workspaceIDEnvVar)
+	if workspaceID == "" {
+		workspaceID = herdr.ContextField("workspace_id")
+	}
+	if workspaceID == "" {
+		return "", fmt.Errorf("%s must be set", workspaceIDEnvVar)
+	}
+	return workspaceID, nil
 }

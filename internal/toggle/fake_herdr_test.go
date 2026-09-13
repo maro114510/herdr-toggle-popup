@@ -39,27 +39,26 @@ case "$1 $2" in
   "plugin pane")
     case "$3" in
       open)
-        assert_arg_count 12 "$@"
+        assert_arg_count 16 "$@"
         [ "$4" = "--plugin" ] || fail_args "$@"
         [ "$5" = "maro114510.toggle-popup" ] || fail_args "$@"
         [ "$6" = "--entrypoint" ] || fail_args "$@"
         [ -n "$7" ] || fail_args "$@"
         [ "$8" = "--placement" ] || fail_args "$@"
-        [ "$9" = "overlay" ] || fail_args "$@"
-        [ "${10}" = "--cwd" ] || fail_args "$@"
-        [ -n "${11}" ] || fail_args "$@"
-        [ "${12}" = "--focus" ] || fail_args "$@"
+        [ "$9" = "popup" ] || fail_args "$@"
+        [ "${10}" = "--width" ] || fail_args "$@"
+        [ "${11}" = "100%" ] || fail_args "$@"
+        [ "${12}" = "--height" ] || fail_args "$@"
+        [ "${13}" = "100%" ] || fail_args "$@"
+        [ "${14}" = "--cwd" ] || fail_args "$@"
+        [ -n "${15}" ] || fail_args "$@"
+        [ "${16}" = "--focus" ] || fail_args "$@"
         exit_code="${STUB_HERDR_OPEN_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
           printf 'stub open failure\n' >&2
           exit "$exit_code"
         fi
-        if [ -n "${STUB_HERDR_OPEN_DELAY_SECONDS:-}" ]; then
-          sleep "$STUB_HERDR_OPEN_DELAY_SECONDS"
-        fi
-        pane_id="${STUB_HERDR_OPEN_PANE_ID:-new-pane-1}"
-        tab_id="${STUB_HERDR_OPEN_TAB_ID-tab-1}"
-        printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s","tab_id":"%s"}}}}\n' "$pane_id" "$tab_id"
+        printf '{"result":{"type":"ok"}}\n'
         ;;
       close)
         assert_arg_count 4 "$@"

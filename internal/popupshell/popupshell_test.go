@@ -16,7 +16,7 @@ import (
 //   workspace:<workspace_id>:<entrypoint>, starting in the focused pane cwd
 // - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
 // - tab scope: derives the tmux session from tab:<workspace id>:<focused tab id>:<entrypoint>
-// - tmux status line is disabled before attaching to the popup session
+// - tmux hides its status line and uses a session-scoped key table to detach the native-popup client with Alt+L
 // - $SHELL unset: defaults the tmux command to /bin/zsh
 // - missing tmux: reports a clear error and never execs
 // - missing focused cwd: reports a clear error before execing tmux
@@ -114,6 +114,22 @@ func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	}
 	if !slices.Equal(call.envv, os.Environ()) {
 		t.Error("envv was not the inherited environment")
+	}
+}
+
+func TestRunReadsWorkspaceIDFromPluginContextForNativePopup(t *testing.T) {
+	setupEnv(t)
+	t.Setenv(workspaceIDEnvVar, "")
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if got := call.argv[4]; got != sessionName("workspace:ws1:shell") {
+		t.Errorf("session = %q, want workspace session derived from plugin context", got)
 	}
 }
 
@@ -291,14 +307,19 @@ func TestRunMissingTabIDReportsErrorBeforeExec(t *testing.T) {
 	}
 }
 
-func TestRunDisablesTmuxStatusBeforeAttaching(t *testing.T) {
+func TestRunConfiguresTmuxForNativePopupBeforeAttaching(t *testing.T) {
 	t.Parallel()
 
-	if !strings.Contains(tmuxAttachScript, "set-option -t \"$1\" status off") {
-		t.Fatalf("tmux attach script = %q, want it to disable the target session status", tmuxAttachScript)
-	}
-	if !strings.Contains(tmuxAttachScript, "attach-session -t \"$1\"") {
-		t.Fatalf("tmux attach script = %q, want it to attach after configuring the session", tmuxAttachScript)
+	for _, want := range []string{
+		"set-option -t \"$1\" status off",
+		"bind-key -T herdr-toggle-popup M-l detach-client",
+		"bind-key -T herdr-toggle-popup C-b switch-client -T prefix",
+		"set-option -t \"$1\" key-table herdr-toggle-popup",
+		"attach-session -t \"$1\"",
+	} {
+		if !strings.Contains(tmuxAttachScript, want) {
+			t.Fatalf("tmux attach script = %q, want it to contain %q", tmuxAttachScript, want)
+		}
 	}
 }
 

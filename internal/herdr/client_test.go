@@ -28,6 +28,10 @@ const (
 // - malformed JSON on a zero exit: returns an error
 // - missing pane_id on a zero exit: returns an error
 //
+// PluginPopupOpen
+// - success: requests the full-screen native popup and accepts its id-less response
+// - malformed response: returns an error
+//
 // PaneExists
 // - true on zero exit, argv is "pane get <id>"
 // - false on non-zero exit
@@ -142,6 +146,30 @@ func TestPluginPaneOpen_MissingTabIDDoesNotError(t *testing.T) {
 	}
 	if tabID != "" {
 		t.Errorf("tabID = %q, want empty when the response omits tab_id", tabID)
+	}
+}
+
+//nolint:paralleltest // newFakeHerdr mutates HERDR_BIN_PATH via t.Setenv, not parallel-safe.
+func TestPluginPopupOpen_Success(t *testing.T) {
+	logPath := newFakeHerdr(t)
+
+	c := NewClient()
+	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd); err != nil {
+		t.Fatalf("PluginPopupOpen() error = %v", err)
+	}
+	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
+	if got := readLog(t, logPath); got != want {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+}
+
+func TestPluginPopupOpen_MalformedJSON(t *testing.T) {
+	newFakeHerdr(t)
+	t.Setenv("FAKE_HERDR_OPEN_MALFORMED", "1")
+
+	c := NewClient()
+	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd); err == nil {
+		t.Fatal("PluginPopupOpen() error = nil, want malformed-response error")
 	}
 }
 

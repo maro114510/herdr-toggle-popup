@@ -115,6 +115,36 @@ func (c *Client) PluginPaneOpen(ctx context.Context, pluginID, entrypoint, cwd s
 	return resp.Result.PluginPane.Pane.PaneID, resp.Result.PluginPane.Pane.TabID, nil
 }
 
+// PluginPopupOpen opens a full-screen native Herdr popup. Native popups own an independent
+// terminal surface instead of a zoomed pane, so Herdr sizes their PTY to the area inside its
+// border before starting the command. The API intentionally returns a plain {"type":"ok"}
+// response: a popup has no public pane ID and is not a plugin pane.
+func (c *Client) PluginPopupOpen(ctx context.Context, pluginID, entrypoint, cwd string) error {
+	stdout, stderr, err := c.run(ctx,
+		"plugin", "pane", "open",
+		"--plugin", pluginID,
+		"--entrypoint", entrypoint,
+		"--placement", "popup",
+		"--width", "100%",
+		"--height", "100%",
+		"--cwd", cwd,
+		"--focus",
+	)
+	if err != nil {
+		return herdrError("herdr plugin pane open", stdout, stderr, err)
+	}
+
+	var resp struct {
+		Result struct {
+			Type string `json:"type"`
+		} `json:"result"`
+	}
+	if jsonErr := json.Unmarshal(stdout, &resp); jsonErr != nil || resp.Result.Type != "ok" {
+		return fmt.Errorf("herdr plugin pane open: expected native popup success response: %s", capturedOutput(stdout, stderr))
+	}
+	return nil
+}
+
 // PaneExists reports whether `pane get <id>` exits successfully.
 func (c *Client) PaneExists(ctx context.Context, paneID string) bool {
 	_, _, err := c.run(ctx, "pane", "get", paneID)
