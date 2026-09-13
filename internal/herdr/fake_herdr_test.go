@@ -35,6 +35,20 @@ case "$1 $2" in
   "plugin pane")
     case "$3" in
       open)
+        if [ "$9" = "popup" ]; then
+          assert_args 'plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus' "$@"
+          exit_code="${FAKE_HERDR_OPEN_EXIT:-0}"
+          if [ "$exit_code" -ne 0 ]; then
+            printf 'stub open failure\n' >&2
+            exit "$exit_code"
+          fi
+          if [ "${FAKE_HERDR_OPEN_MALFORMED:-0}" -eq 1 ]; then
+            printf 'not-json\n'
+            exit 0
+          fi
+          printf '{"result":{"type":"ok"}}\n'
+          exit 0
+        fi
         assert_args 'plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement overlay --cwd /focused/cwd --focus' "$@"
         exit_code="${FAKE_HERDR_OPEN_EXIT:-0}"
         if [ "$exit_code" -ne 0 ]; then
