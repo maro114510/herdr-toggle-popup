@@ -30,10 +30,10 @@ const (
 	sessionHashBytes  = 16
 )
 
-// tmuxAttachScript attaches the popup to the plugin's dedicated tmux server. New sessions are
-// created there with tmux's default key table, so the built-in mouse bindings work without being
-// copied; only Alt+L needs binding, to detach the transient popup client. Sessions created by
-// older versions live on the default server, so a same-name legacy session is attached instead.
+// tmuxAttachScript picks the popup's tmux target:
+//   - dedicated session: attach and bind M-l to detach
+//   - legacy default-server session: attach as-is
+//   - neither: create on the dedicated server, then attach
 const tmuxAttachScript = `if "$4" -L herdr-toggle-popup -f /dev/null has-session -t "$1" 2>/dev/null; then
   "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
 elif "$4" -f /dev/null has-session -t "$1" 2>/dev/null; then
@@ -51,10 +51,8 @@ type (
 	execFunc     func(argv0 string, argv, envv []string) error
 )
 
-// Run implements the `popup-shell` subcommand. It replaces the current process with a tmux
-// attach (creating the session first if needed), preserving environment and inheriting stdio.
-// If the exec fails, it prints the error to stderr and returns non-zero; on success it never
-// returns.
+// Run replaces the current process with a tmux attach, creating the session first if needed.
+// It inherits stdio and never returns on success.
 func Run(args []string, stdout, stderr io.Writer) int {
 	_ = stdout
 	return run(args, stderr, exec.LookPath, syscall.Exec)

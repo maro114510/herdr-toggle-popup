@@ -17,11 +17,11 @@ import (
 //   workspace:<workspace_id>:<entrypoint>, starting in the focused pane cwd
 // - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
 // - tab scope: derives the tmux session from tab:<workspace id>:<focused tab id>:<entrypoint>
-// - tmux hides its status line, enables mouse mode, and binds Alt+L to detach on the dedicated server
-// - real tmux server: a new popup session is created only on the dedicated server
-// - real tmux server: a legacy same-name session on the default server is attached instead
-// - real tmux server: the dedicated server keeps tmux's default mouse bindings and prefix
-// - real tmux server: reopening reuses the existing dedicated session
+// - tmux hides its status line, enables mouse mode, and binds Alt+L to detach
+// - real tmux server: new session only on the dedicated server
+// - real tmux server: legacy default-server session attached instead
+// - real tmux server: dedicated server keeps tmux default mouse bindings and prefix
+// - real tmux server: reopening reuses the dedicated session
 // - $SHELL unset: defaults the tmux command to /bin/zsh
 // - missing tmux: reports a clear error and never execs
 // - missing focused cwd: reports a clear error before execing tmux
@@ -143,9 +143,8 @@ func runTmux(t *testing.T, env []string, tmuxPath string, args ...string) string
 	return string(out)
 }
 
-// runAttachScript runs the production attach script against the isolated servers. The script ends
-// in `exec attach-session`, which cannot attach without a tty; only its side effects are asserted,
-// so the resulting non-zero exit is expected and ignored.
+// runAttachScript runs the production attach script against the isolated servers.
+// attach-session needs a tty, so the exit code is ignored and only side effects are asserted.
 func runAttachScript(t *testing.T, env []string, tmuxPath string) {
 	t.Helper()
 
