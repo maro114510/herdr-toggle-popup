@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Test list:
@@ -17,6 +19,9 @@ import (
 // - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
 // - tab scope: derives the tmux session from tab:<workspace id>:<focused tab id>:<entrypoint>
 // - tmux hides its status line and uses a session-scoped key table to detach the native-popup client with Alt+L
+// - real tmux server: the config script installs effective WheelUpPane and MouseDrag1Pane bindings
+// - real tmux server: copy mode scrolls pane history
+// - real tmux server: a copy-mode selection reaches a tmux buffer
 // - $SHELL unset: defaults the tmux command to /bin/zsh
 // - missing tmux: reports a clear error and never execs
 // - missing focused cwd: reports a clear error before execing tmux
@@ -30,6 +35,17 @@ const (
 	testShellPath   = "/opt/homebrew/bin/fish"
 	testShellBin    = "/resolved/sh"
 	testTmuxBin     = "/resolved/tmux"
+
+	// Real-tmux-server test settings. popupKeyTable mirrors the table name in tmuxConfigScript.
+	popupKeyTable    = "herdr-toggle-popup"
+	tmuxSocketDirVar = "TMUX_TMPDIR"
+	tmuxClientEnvVar = "TMUX"
+	testSessionName  = "herdr-popup-test"
+	paneOutputMarker = "gamma"
+	paneSelection    = "alpha"
+
+	tmuxWaitTimeout  = 5 * time.Second
+	tmuxPollInterval = 50 * time.Millisecond
 )
 
 type execCall struct {
@@ -91,6 +107,160 @@ func captureExec(call *execCall) execFunc {
 		call.argv = slices.Clone(argv)
 		call.envv = slices.Clone(envv)
 		return nil
+	}
+}
+
+// isolatedTmuxEnv points tmux at a private socket directory and drops TMUX.
+// The test therefore never touches an ambient server.
+func isolatedTmuxEnv(t *testing.T) []string {
+	t.Helper()
+
+	// Keep the socket path short: tmux appends "/tmux-<uid>/default" to a 104-byte sun_path limit.
+	//nolint:usetesting // t.TempDir embeds the long test name and overflows sun_path.
+	dir, err := os.MkdirTemp("", "htp")
+	if err != nil {
+		t.Fatalf("create tmux socket dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		if strings.HasPrefix(entry, tmuxClientEnvVar+"=") ||
+			strings.HasPrefix(entry, tmuxSocketDirVar+"=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, tmuxSocketDirVar+"="+dir)
+}
+
+// runTmux runs tmux against the isolated server and fails the test on a non-zero exit.
+func runTmux(t *testing.T, env []string, tmuxPath string, args ...string) string {
+	t.Helper()
+
+	//nolint:gosec // The test controls the tmux binary and every argument.
+	cmd := exec.Command(tmuxPath, args...)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("tmux %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+// applyPopupTmuxConfig runs the production config script against the isolated server.
+func applyPopupTmuxConfig(t *testing.T, env []string, tmuxPath string) {
+	t.Helper()
+
+	//nolint:gosec // The test drives the production tmux config script with fixed arguments.
+	cmd := exec.Command("sh", "-c", tmuxConfigScript, "popup-shell", testSessionName, t.TempDir(), "/bin/sh", tmuxPath)
+	cmd.Env = env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("apply popup tmux config: %v\n%s", err, out)
+	}
+}
+
+// killTmuxServer tears down the isolated server; a missing server is fine.
+func killTmuxServer(t *testing.T, env []string, tmuxPath string) {
+	t.Helper()
+
+	cmd := exec.Command(tmuxPath, "kill-server")
+	cmd.Env = env
+	_ = cmd.Run()
+}
+
+// waitForPaneOutput polls the pane until want appears.
+func waitForPaneOutput(t *testing.T, env []string, tmuxPath, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(tmuxWaitTimeout)
+	for {
+		if strings.Contains(runTmux(t, env, tmuxPath, "capture-pane", "-p", "-t", testSessionName), want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane %q never showed %q", testSessionName, want)
+		}
+		time.Sleep(tmuxPollInterval)
+	}
+}
+
+func TestTmuxConfigScriptRegistersEffectiveMouseBindings(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	t.Cleanup(func() { killTmuxServer(t, env, tmuxPath) })
+	applyPopupTmuxConfig(t, env, tmuxPath)
+
+	wantKeyTable := "key-table " + popupKeyTable
+	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "key-table")); got != wantKeyTable {
+		t.Errorf("session key-table = %q, want %q", got, wantKeyTable)
+	}
+	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "mouse")); got != "mouse on" {
+		t.Errorf("session mouse = %q, want %q", got, "mouse on")
+	}
+
+	keys := runTmux(t, env, tmuxPath, "list-keys", "-T", popupKeyTable)
+	for _, want := range []string{"M-l", "C-b", "MouseDrag1Pane", "WheelUpPane", "copy-mode -M", "copy-mode -e"} {
+		if !strings.Contains(keys, want) {
+			t.Errorf("effective key table %q is missing %q:\n%s", popupKeyTable, want, keys)
+		}
+	}
+}
+
+func TestTmuxConfigScriptScrollsPaneHistoryInCopyMode(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	t.Cleanup(func() { killTmuxServer(t, env, tmuxPath) })
+
+	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", testSessionName, "sh")
+	applyPopupTmuxConfig(t, env, tmuxPath)
+	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "seq 1 200", "Enter")
+	waitForPaneOutput(t, env, tmuxPath, "200")
+
+	// copy-mode -e is the WheelUpPane binding's command.
+	runTmux(t, env, tmuxPath, "copy-mode", "-e", "-t", testSessionName)
+	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{pane_in_mode}")); got != "1" {
+		t.Fatalf("pane_in_mode = %q, want the pane to enter copy mode", got)
+	}
+	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "scroll-up")
+	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{scroll_position}")); got == "0" || got == "" {
+		t.Errorf("scroll_position = %q, want the pane to scroll into history", got)
+	}
+}
+
+func TestTmuxConfigScriptCopiesSelectionToTmuxBuffer(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	t.Cleanup(func() { killTmuxServer(t, env, tmuxPath) })
+
+	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", testSessionName, "sh")
+	applyPopupTmuxConfig(t, env, tmuxPath)
+	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, `printf "alpha\nbeta\ngamma\n"`, "Enter")
+	waitForPaneOutput(t, env, tmuxPath, paneOutputMarker)
+
+	runTmux(t, env, tmuxPath, "copy-mode", "-e", "-t", testSessionName)
+	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "history-top")
+	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "cursor-down")
+	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "select-line")
+	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "copy-pipe-and-cancel")
+
+	if got := runTmux(t, env, tmuxPath, "show-buffer"); !strings.Contains(got, paneSelection) {
+		t.Errorf("tmux buffer = %q, want it to contain the selected text %q", got, paneSelection)
 	}
 }
 
@@ -314,6 +484,8 @@ func TestRunConfiguresTmuxForNativePopupBeforeAttaching(t *testing.T) {
 		"set-option -t \"$1\" status off",
 		"bind-key -T herdr-toggle-popup M-l detach-client",
 		"bind-key -T herdr-toggle-popup C-b switch-client -T prefix",
+		"bind-key -T herdr-toggle-popup MouseDrag1Pane",
+		"bind-key -T herdr-toggle-popup WheelUpPane",
 		"set-option -t \"$1\" key-table herdr-toggle-popup",
 		"attach-session -t \"$1\"",
 	} {
