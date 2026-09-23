@@ -30,14 +30,20 @@ const (
 	sessionHashBytes  = 16
 )
 
-const tmuxAttachScript = `if ! "$4" -f /dev/null has-session -t "$1" 2>/dev/null; then
+// tmuxConfigScript prepares the popup's tmux session and selects a custom key table.
+// tmux does not fall back to root here, so the custom table must carry the default mouse bindings.
+const tmuxConfigScript = `if ! "$4" -f /dev/null has-session -t "$1" 2>/dev/null; then
   "$4" -f /dev/null new-session -d -s "$1" -c "$2" "$3"
 fi
 "$4" -f /dev/null set-option -t "$1" status off
 "$4" -f /dev/null bind-key -T herdr-toggle-popup M-l detach-client
 "$4" -f /dev/null bind-key -T herdr-toggle-popup C-b switch-client -T prefix
+"$4" -f /dev/null bind-key -T herdr-toggle-popup MouseDrag1Pane if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" "send-keys -M" "copy-mode -M"
+"$4" -f /dev/null bind-key -T herdr-toggle-popup WheelUpPane if-shell -F "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}" "send-keys -M" "copy-mode -e"
 "$4" -f /dev/null set-option -t "$1" key-table herdr-toggle-popup
-"$4" -f /dev/null set-option -t "$1" mouse on
+"$4" -f /dev/null set-option -t "$1" mouse on`
+
+const tmuxAttachScript = tmuxConfigScript + `
 exec "$4" -f /dev/null attach-session -t "$1"`
 
 type (
