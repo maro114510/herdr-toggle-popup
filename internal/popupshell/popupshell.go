@@ -30,30 +30,31 @@ const (
 	sessionHashBytes  = 16
 )
 
-// tmuxConfigScript prepares the popup's tmux session and selects a custom key table.
-// tmux does not fall back to root here, so the custom table must carry the default mouse bindings.
-const tmuxConfigScript = `if ! "$4" -f /dev/null has-session -t "$1" 2>/dev/null; then
-  "$4" -f /dev/null new-session -d -s "$1" -c "$2" "$3"
+// tmuxAttachScript attaches the popup to the plugin's dedicated tmux server. New sessions are
+// created there with tmux's default key table, so the built-in mouse bindings work without being
+// copied; only Alt+L needs binding, to detach the transient popup client. Sessions created by
+// older versions live on the default server, so a same-name legacy session is attached instead.
+const tmuxAttachScript = `if "$4" -L herdr-toggle-popup -f /dev/null has-session -t "$1" 2>/dev/null; then
+  "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
+elif "$4" -f /dev/null has-session -t "$1" 2>/dev/null; then
+  exec "$4" -f /dev/null attach-session -t "$1"
+else
+  "$4" -L herdr-toggle-popup -f /dev/null new-session -d -s "$1" -c "$2" "$3"
+  "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" status off
+  "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" mouse on
+  "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
 fi
-"$4" -f /dev/null set-option -t "$1" status off
-"$4" -f /dev/null bind-key -T herdr-toggle-popup M-l detach-client
-"$4" -f /dev/null bind-key -T herdr-toggle-popup C-b switch-client -T prefix
-"$4" -f /dev/null bind-key -T herdr-toggle-popup MouseDrag1Pane if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" "send-keys -M" "copy-mode -M"
-"$4" -f /dev/null bind-key -T herdr-toggle-popup WheelUpPane if-shell -F "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}" "send-keys -M" "copy-mode -e"
-"$4" -f /dev/null set-option -t "$1" key-table herdr-toggle-popup
-"$4" -f /dev/null set-option -t "$1" mouse on`
-
-const tmuxAttachScript = tmuxConfigScript + `
-exec "$4" -f /dev/null attach-session -t "$1"`
+exec "$4" -L herdr-toggle-popup -f /dev/null attach-session -t "$1"`
 
 type (
 	lookPathFunc func(file string) (string, error)
 	execFunc     func(argv0 string, argv, envv []string) error
 )
 
-// Run implements the `popup-shell` subcommand. It replaces the current process with
-// `tmux new-session -A`, preserving environment and inheriting stdio. If the exec fails, it
-// prints the error to stderr and returns non-zero; on success it never returns.
+// Run implements the `popup-shell` subcommand. It replaces the current process with a tmux
+// attach (creating the session first if needed), preserving environment and inheriting stdio.
+// If the exec fails, it prints the error to stderr and returns non-zero; on success it never
+// returns.
 func Run(args []string, stdout, stderr io.Writer) int {
 	_ = stdout
 	return run(args, stderr, exec.LookPath, syscall.Exec)

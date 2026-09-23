@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Test list:
@@ -18,10 +17,11 @@ import (
 //   workspace:<workspace_id>:<entrypoint>, starting in the focused pane cwd
 // - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
 // - tab scope: derives the tmux session from tab:<workspace id>:<focused tab id>:<entrypoint>
-// - tmux hides its status line and uses a session-scoped key table to detach the native-popup client with Alt+L
-// - real tmux server: the config script installs effective WheelUpPane and MouseDrag1Pane bindings
-// - real tmux server: copy mode scrolls pane history
-// - real tmux server: a copy-mode selection reaches a tmux buffer
+// - tmux hides its status line, enables mouse mode, and binds Alt+L to detach on the dedicated server
+// - real tmux server: a new popup session is created only on the dedicated server
+// - real tmux server: a legacy same-name session on the default server is attached instead
+// - real tmux server: the dedicated server keeps tmux's default mouse bindings and prefix
+// - real tmux server: reopening reuses the existing dedicated session
 // - $SHELL unset: defaults the tmux command to /bin/zsh
 // - missing tmux: reports a clear error and never execs
 // - missing focused cwd: reports a clear error before execing tmux
@@ -36,16 +36,11 @@ const (
 	testShellBin    = "/resolved/sh"
 	testTmuxBin     = "/resolved/tmux"
 
-	// Real-tmux-server test settings. popupKeyTable mirrors the table name in tmuxConfigScript.
-	popupKeyTable    = "herdr-toggle-popup"
+	// Real-tmux-server test settings. popupSocketName mirrors the socket in tmuxAttachScript.
+	popupSocketName  = "herdr-toggle-popup"
 	tmuxSocketDirVar = "TMUX_TMPDIR"
 	tmuxClientEnvVar = "TMUX"
 	testSessionName  = "herdr-popup-test"
-	paneOutputMarker = "gamma"
-	paneSelection    = "alpha"
-
-	tmuxWaitTimeout  = 5 * time.Second
-	tmuxPollInterval = 50 * time.Millisecond
 )
 
 type execCall struct {
@@ -148,44 +143,59 @@ func runTmux(t *testing.T, env []string, tmuxPath string, args ...string) string
 	return string(out)
 }
 
-// applyPopupTmuxConfig runs the production config script against the isolated server.
-func applyPopupTmuxConfig(t *testing.T, env []string, tmuxPath string) {
+// runAttachScript runs the production attach script against the isolated servers. The script ends
+// in `exec attach-session`, which cannot attach without a tty; only its side effects are asserted,
+// so the resulting non-zero exit is expected and ignored.
+func runAttachScript(t *testing.T, env []string, tmuxPath string) {
 	t.Helper()
 
-	//nolint:gosec // The test drives the production tmux config script with fixed arguments.
-	cmd := exec.Command("sh", "-c", tmuxConfigScript, "popup-shell", testSessionName, t.TempDir(), "/bin/sh", tmuxPath)
-	cmd.Env = env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("apply popup tmux config: %v\n%s", err, out)
-	}
-}
-
-// killTmuxServer tears down the isolated server; a missing server is fine.
-func killTmuxServer(t *testing.T, env []string, tmuxPath string) {
-	t.Helper()
-
-	cmd := exec.Command(tmuxPath, "kill-server")
+	//nolint:gosec // The test drives the production attach script with fixed arguments.
+	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", testSessionName, t.TempDir(), "/bin/sh", tmuxPath)
 	cmd.Env = env
 	_ = cmd.Run()
 }
 
-// waitForPaneOutput polls the pane until want appears.
-func waitForPaneOutput(t *testing.T, env []string, tmuxPath, want string) {
+// dedicatedTmux runs tmux against the plugin's dedicated server.
+func dedicatedTmux(t *testing.T, env []string, tmuxPath string, args ...string) string {
 	t.Helper()
 
-	deadline := time.Now().Add(tmuxWaitTimeout)
-	for {
-		if strings.Contains(runTmux(t, env, tmuxPath, "capture-pane", "-p", "-t", testSessionName), want) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pane %q never showed %q", testSessionName, want)
-		}
-		time.Sleep(tmuxPollInterval)
-	}
+	serverArgs := slices.Concat([]string{"-L", popupSocketName, "-f", "/dev/null"}, args)
+	return runTmux(t, env, tmuxPath, serverArgs...)
 }
 
-func TestTmuxConfigScriptRegistersEffectiveMouseBindings(t *testing.T) {
+// tmuxSessionExists reports whether the test session exists on the server selected by serverArgs.
+func tmuxSessionExists(t *testing.T, env []string, tmuxPath string, serverArgs ...string) bool {
+	t.Helper()
+
+	args := append(slices.Clone(serverArgs), "has-session", "-t", testSessionName)
+	//nolint:gosec // The test controls the tmux binary and every argument.
+	cmd := exec.Command(tmuxPath, args...)
+	cmd.Env = env
+	return cmd.Run() == nil
+}
+
+// killTmuxServer tears down the server selected by serverArgs; a missing server is fine.
+func killTmuxServer(t *testing.T, env []string, tmuxPath string, serverArgs ...string) {
+	t.Helper()
+
+	args := append(slices.Clone(serverArgs), "kill-server")
+	//nolint:gosec // The test controls the tmux binary and every argument.
+	cmd := exec.Command(tmuxPath, args...)
+	cmd.Env = env
+	_ = cmd.Run()
+}
+
+// isolatedServers tears down both isolated servers the attach script may touch.
+func isolatedServers(t *testing.T, env []string, tmuxPath string) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		killTmuxServer(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null")
+		killTmuxServer(t, env, tmuxPath, "-f", "/dev/null")
+	})
+}
+
+func TestTmuxAttachScriptCreatesNewSessionOnlyOnDedicatedServer(t *testing.T) {
 	t.Parallel()
 
 	tmuxPath, err := exec.LookPath(tmuxBin)
@@ -193,26 +203,70 @@ func TestTmuxConfigScriptRegistersEffectiveMouseBindings(t *testing.T) {
 		t.Skip("tmux not found, skipping real tmux server test")
 	}
 	env := isolatedTmuxEnv(t)
-	t.Cleanup(func() { killTmuxServer(t, env, tmuxPath) })
-	applyPopupTmuxConfig(t, env, tmuxPath)
+	isolatedServers(t, env, tmuxPath)
 
-	wantKeyTable := "key-table " + popupKeyTable
-	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "key-table")); got != wantKeyTable {
-		t.Errorf("session key-table = %q, want %q", got, wantKeyTable)
+	runAttachScript(t, env, tmuxPath)
+
+	if !tmuxSessionExists(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null") {
+		t.Errorf("session %q was not created on the dedicated server", testSessionName)
 	}
-	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "mouse")); got != "mouse on" {
+	if tmuxSessionExists(t, env, tmuxPath, "-f", "/dev/null") {
+		t.Errorf("session %q exists on the default server, want it only on the dedicated server", testSessionName)
+	}
+}
+
+func TestTmuxAttachScriptAttachesToLegacySessionOnDefaultServer(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", testSessionName, "-c", t.TempDir(), "/bin/sh")
+	runAttachScript(t, env, tmuxPath)
+
+	if !tmuxSessionExists(t, env, tmuxPath, "-f", "/dev/null") {
+		t.Errorf("legacy session %q on the default server is gone", testSessionName)
+	}
+	if tmuxSessionExists(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null") {
+		t.Error("a dedicated session was created despite a legacy session being available")
+	}
+}
+
+func TestTmuxAttachScriptKeepsDefaultBindingsOnDedicatedServer(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath)
+
+	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "status")); got != "status off" {
+		t.Errorf("session status = %q, want %q", got, "status off")
+	}
+	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "mouse")); got != "mouse on" {
 		t.Errorf("session mouse = %q, want %q", got, "mouse on")
 	}
 
-	keys := runTmux(t, env, tmuxPath, "list-keys", "-T", popupKeyTable)
-	for _, want := range []string{"M-l", "C-b", "MouseDrag1Pane", "WheelUpPane", "copy-mode -M", "copy-mode -e"} {
+	keys := dedicatedTmux(t, env, tmuxPath, "list-keys", "-T", "root")
+	for _, want := range []string{"WheelUpPane", "MouseDrag1Pane", "M-l", "detach-client"} {
 		if !strings.Contains(keys, want) {
-			t.Errorf("effective key table %q is missing %q:\n%s", popupKeyTable, want, keys)
+			t.Errorf("dedicated root key table is missing %q:\n%s", want, keys)
 		}
 	}
+	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-g", "prefix")); got != "prefix C-b" {
+		t.Errorf("dedicated prefix = %q, want %q", got, "prefix C-b")
+	}
 }
 
-func TestTmuxConfigScriptScrollsPaneHistoryInCopyMode(t *testing.T) {
+func TestTmuxAttachScriptReusesExistingDedicatedSession(t *testing.T) {
 	t.Parallel()
 
 	tmuxPath, err := exec.LookPath(tmuxBin)
@@ -220,47 +274,16 @@ func TestTmuxConfigScriptScrollsPaneHistoryInCopyMode(t *testing.T) {
 		t.Skip("tmux not found, skipping real tmux server test")
 	}
 	env := isolatedTmuxEnv(t)
-	t.Cleanup(func() { killTmuxServer(t, env, tmuxPath) })
+	isolatedServers(t, env, tmuxPath)
 
-	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", testSessionName, "sh")
-	applyPopupTmuxConfig(t, env, tmuxPath)
-	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "seq 1 200", "Enter")
-	waitForPaneOutput(t, env, tmuxPath, "200")
+	runAttachScript(t, env, tmuxPath)
+	created := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{session_created}"))
 
-	// copy-mode -e is the WheelUpPane binding's command.
-	runTmux(t, env, tmuxPath, "copy-mode", "-e", "-t", testSessionName)
-	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{pane_in_mode}")); got != "1" {
-		t.Fatalf("pane_in_mode = %q, want the pane to enter copy mode", got)
-	}
-	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "scroll-up")
-	if got := strings.TrimSpace(runTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{scroll_position}")); got == "0" || got == "" {
-		t.Errorf("scroll_position = %q, want the pane to scroll into history", got)
-	}
-}
+	runAttachScript(t, env, tmuxPath)
+	again := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{session_created}"))
 
-func TestTmuxConfigScriptCopiesSelectionToTmuxBuffer(t *testing.T) {
-	t.Parallel()
-
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
-	env := isolatedTmuxEnv(t)
-	t.Cleanup(func() { killTmuxServer(t, env, tmuxPath) })
-
-	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", testSessionName, "sh")
-	applyPopupTmuxConfig(t, env, tmuxPath)
-	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, `printf "alpha\nbeta\ngamma\n"`, "Enter")
-	waitForPaneOutput(t, env, tmuxPath, paneOutputMarker)
-
-	runTmux(t, env, tmuxPath, "copy-mode", "-e", "-t", testSessionName)
-	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "history-top")
-	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "cursor-down")
-	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "select-line")
-	runTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "-X", "copy-pipe-and-cancel")
-
-	if got := runTmux(t, env, tmuxPath, "show-buffer"); !strings.Contains(got, paneSelection) {
-		t.Errorf("tmux buffer = %q, want it to contain the selected text %q", got, paneSelection)
+	if created == "" || created != again {
+		t.Errorf("session_created changed from %q to %q, want the existing shell session preserved", created, again)
 	}
 }
 
@@ -477,16 +500,16 @@ func TestRunMissingTabIDReportsErrorBeforeExec(t *testing.T) {
 	}
 }
 
-func TestRunConfiguresTmuxForNativePopupBeforeAttaching(t *testing.T) {
+func TestRunConfiguresDedicatedTmuxServerBeforeAttaching(t *testing.T) {
 	t.Parallel()
 
 	for _, want := range []string{
+		"-L herdr-toggle-popup",
+		"has-session -t \"$1\"",
+		"new-session -d -s \"$1\" -c \"$2\" \"$3\"",
 		"set-option -t \"$1\" status off",
-		"bind-key -T herdr-toggle-popup M-l detach-client",
-		"bind-key -T herdr-toggle-popup C-b switch-client -T prefix",
-		"bind-key -T herdr-toggle-popup MouseDrag1Pane",
-		"bind-key -T herdr-toggle-popup WheelUpPane",
-		"set-option -t \"$1\" key-table herdr-toggle-popup",
+		"bind-key -n M-l detach-client",
+		"set-option -t \"$1\" mouse on",
 		"attach-session -t \"$1\"",
 	} {
 		if !strings.Contains(tmuxAttachScript, want) {
@@ -500,6 +523,14 @@ func TestRunEnablesTmuxMouseModeBeforeAttaching(t *testing.T) {
 
 	if !strings.Contains(tmuxAttachScript, "set-option -t \"$1\" mouse on") {
 		t.Fatalf("tmux attach script = %q, want it to enable mouse mode on the target session", tmuxAttachScript)
+	}
+}
+
+func TestRunAttachScriptReliesOnDefaultKeyTable(t *testing.T) {
+	t.Parallel()
+
+	if strings.Contains(tmuxAttachScript, "key-table") {
+		t.Fatalf("tmux attach script = %q, want tmux default bindings instead of a custom key table", tmuxAttachScript)
 	}
 }
 
