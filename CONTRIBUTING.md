@@ -41,6 +41,7 @@ CI runs these checks on every pull request.
 | Go fixups | `go fix ./...` |
 | Vet | `go vet ./...` |
 | Tests | `go test -coverprofile=coverage.out ./...` |
+| Race detection | `go test -race ./...` |
 | Vulnerabilities | `govulncheck ./...` |
 | Shell scripts | `shellcheck scripts/*.sh` |
 | Lint | `golangci-lint run` |
