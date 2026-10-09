@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest a new capability or an improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea. Describe the problem first, then the behavior you want.
+
+        **Never report a security vulnerability here.** Use [GitHub private vulnerability reporting](https://github.com/maro114510/herdr-toggle-popup/security/advisories/new) and read [SECURITY.md](https://github.com/maro114510/herdr-toggle-popup/blob/main/SECURITY.md) for the reporting policy.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what makes it difficult or impossible today?
+      placeholder: "When I use ... I cannot ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe the behavior you want, including any configuration or keybinding it would need.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you tried, or other approaches you considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, links, or related examples. Remove secrets before pasting.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed all secrets, tokens, and private paths from this request.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/maro114510/herdr-toggle-popup/security/advisories/new
+    about: Report a vulnerability privately through GitHub. Do not disclose it in a public issue.
+  - name: Security policy and supported versions
+    url: https://github.com/maro114510/herdr-toggle-popup/blob/main/SECURITY.md
+    about: Read SECURITY.md before reporting a security problem.

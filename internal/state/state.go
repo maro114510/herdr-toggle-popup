@@ -82,6 +82,7 @@ func (s *Store) WithLock(fn func() error) error {
 	}
 
 	lockPath := filepath.Clean(filepath.Join(dir, "popups.lock"))
+	//nolint:gosec // lockPath is the plugin-owned registry root joined with the fixed lock file name.
 	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, lockFilePerm)
 	if err != nil {
 		return err

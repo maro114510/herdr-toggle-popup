@@ -125,6 +125,7 @@ func diagnoseConfig(stdout io.Writer) {
 	}
 
 	path := filepath.Clean(filepath.Join(dir, configFile))
+	//nolint:gosec // path is HERDR_PLUGIN_CONFIG_DIR joined with the fixed configFile name.
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			_, _ = fmt.Fprintf(stdout, "config: missing (%s not found)\n", configFile)
@@ -153,6 +154,7 @@ func diagnoseState(stdout io.Writer) {
 	}
 
 	path := filepath.Clean(filepath.Join(dir, stateFile))
+	//nolint:gosec // path is HERDR_PLUGIN_STATE_DIR joined with the fixed stateFile name.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
