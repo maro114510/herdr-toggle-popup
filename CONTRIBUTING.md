@@ -47,6 +47,24 @@ CI runs these checks on every pull request.
 
 `gofmt` must print nothing. `go fix` must not modify tracked Go files. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
 
+### Pinned CI tools
+
+GitHub Actions are pinned to commit SHAs and updated by Dependabot. Tools that CI runs but that are not Actions are pinned to exact releases in [.github/workflows/ci.yml](./.github/workflows/ci.yml), so an unchanged workflow revision fetches the same binaries:
+
+| Tool | Pin |
+| --- | --- |
+| govulncheck | `golang.org/x/vuln/cmd/govulncheck@v1.8.0` |
+| golangci-lint | `version: v2.14.0` |
+| octocov | `version: v0.83.3` |
+
+Dependabot does not manage these, so bump them by hand:
+
+1. Find the newest release tag for the tool.
+2. Replace its pin in [.github/workflows/ci.yml](./.github/workflows/ci.yml).
+3. Run the tool's check and confirm the version it logs matches the new pin, for example `govulncheck ./...` or `golangci-lint run`.
+
+The workflow file is the source of truth; keep this table in sync when it changes.
+
 ## Project layout
 
 | Path | Purpose |
