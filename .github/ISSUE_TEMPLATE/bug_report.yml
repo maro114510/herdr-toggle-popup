@@ -1,0 +1,118 @@
+name: Bug report
+description: Report a reproducible problem with the plugin.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Fill in every required field so the problem can be reproduced.
+
+        **Never report a security vulnerability here.** Use [GitHub private vulnerability reporting](https://github.com/maro114510/herdr-toggle-popup/security/advisories/new) and read [SECURITY.md](https://github.com/maro114510/herdr-toggle-popup/blob/main/SECURITY.md) for the supported versions and the reporting policy.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Run `"$HERDR_PLUGIN_ROOT/bin/toggle-popup" version` or read `version` in herdr-plugin.toml.
+      placeholder: "0.5.1"
+    validations:
+      required: true
+
+  - type: input
+    id: herdr-version
+    attributes:
+      label: Herdr version
+      description: The output of `herdr --version`.
+      placeholder: "0.9.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: tmux-version
+    attributes:
+      label: tmux version
+      description: The output of `tmux -V`.
+      placeholder: "tmux 3.5a"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Configured scope
+      description: The `scope` value in your plugin config. The default is workspace.
+      options:
+        - workspace
+        - directory
+        - tab
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps, including the key you pressed and what you did first.
+      placeholder: |
+        1. Link the plugin with `herdr plugin link .`
+        2. Press Alt+L with the popup closed
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include the full error message if one is shown.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste the output of `"$HERDR_PLUGIN_ROOT/bin/toggle-popup" doctor` and redact anything sensitive.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Additional context
+      description: Relevant logs, screenshots, or configuration. Remove secrets before pasting.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed all secrets, tokens, and private paths from this report.
+          required: true
