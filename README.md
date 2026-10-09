@@ -2,7 +2,7 @@
 
 A [Herdr](https://herdr.dev) plugin that toggles a full-screen popup shell with one keybinding.
 
-![](https://static.zenn.studio/user-upload/94bf4c5e9cc5-20260707.gif)
+![](./docs/demo.gif)
 
 ## Install
 
