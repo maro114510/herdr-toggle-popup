@@ -77,6 +77,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [scripts/build.sh](./scripts/build.sh) | The Herdr build step |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
+| [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
 
 Add or update tests in the relevant internal package.
 
