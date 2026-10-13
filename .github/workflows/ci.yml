@@ -42,6 +42,19 @@ jobs:
             echo "$fmt_out"
             exit 1
           fi
+      - name: Check module integrity
+        run: |
+          # Download first: go mod verify only checks modules already in the cache,
+          # so on a cold runner it would otherwise verify nothing.
+          go mod download
+          go mod verify
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code -- go.mod go.sum; then
+            echo "go mod tidy produced changes. Run 'go mod tidy' locally and commit the result."
+            exit 1
+          fi
       - name: Check go fix
         run: |
           go fix ./...
