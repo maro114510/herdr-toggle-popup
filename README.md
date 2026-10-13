@@ -25,6 +25,26 @@ herdr plugin link .
 sh scripts/build.sh
 ```
 
+## Verify a release download
+
+Releases built with attestation support include a signed GitHub Actions build-provenance attestation. Verify a downloaded binary before running it:
+
+```bash
+gh attestation verify ./toggle-popup_darwin_arm64 \
+  --repo maro114510/herdr-toggle-popup \
+  --signer-workflow maro114510/herdr-toggle-popup/.github/workflows/release.yml \
+  --source-ref refs/tags/vX.Y.Z
+```
+
+| Flag | Checks |
+| --- | --- |
+| `--repo` | This repository owns the attestation. |
+| `--signer-workflow` | This plugin's release workflow signed the attestation. |
+| `--source-ref` | The build ran from the release tag, which must match `version` in [`herdr-plugin.toml`](./herdr-plugin.toml). Replace `vX.Y.Z` in the command with that tag. |
+| `--source-digest` | The build ran from the source commit given by `$(git rev-parse vX.Y.Z^{commit})`. |
+
+`gh attestation verify` recomputes the file digest and rejects an altered binary. Releases published before attestation support have no attestation, so verification fails.
+
 ## Binding a key
 
 Copy the block from [`keybindings.toml`](./keybindings.toml) into `~/.config/herdr/config.toml`:

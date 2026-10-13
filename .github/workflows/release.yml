@@ -34,6 +34,10 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -75,6 +79,12 @@ jobs:
         run: |
           set -eu
           (cd dist && sha256sum toggle-popup_* > checksums.txt)
+
+      # A failed attestation must stop the run before the release is published.
+      - name: Generate artifact attestations
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/toggle-popup_*
 
       - name: Create GitHub Release
         env:
