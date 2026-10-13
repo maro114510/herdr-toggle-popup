@@ -38,6 +38,8 @@ CI runs these checks on every pull request.
 | Check | Command |
 | --- | --- |
 | Formatting | `gofmt -l .` |
+| Module integrity | `go mod verify` |
+| Module tidiness | `go mod tidy` |
 | Go fixups | `go fix ./...` |
 | Vet | `go vet ./...` |
 | Tests | `go test -coverprofile=coverage.out ./...` |
@@ -46,7 +48,7 @@ CI runs these checks on every pull request.
 | Shell scripts | `shellcheck scripts/*.sh` |
 | Lint | `golangci-lint run` |
 
-`gofmt` must print nothing. `go fix` must not modify tracked Go files. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
+`gofmt` must print nothing. `go fix` must not modify tracked Go files. `go mod tidy` must not modify `go.mod` or `go.sum`. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
 
 ### Pinned CI tools
 
