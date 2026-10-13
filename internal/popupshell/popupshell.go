@@ -18,26 +18,29 @@ import (
 )
 
 const (
-	shellEnvVar       = "SHELL"
-	defaultShell      = "/bin/zsh"
-	defaultEntrypoint = "shell"
-	shellBin          = "sh"
-	tmuxBin           = "tmux"
-	scopeDirectory    = "directory"
-	scopeTab          = "tab"
-	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
-	sessionPrefix     = "herdr-toggle-popup-"
-	sessionHashBytes  = 16
+	shellEnvVar        = "SHELL"
+	defaultShell       = "/bin/zsh"
+	defaultEntrypoint  = "shell"
+	shellBin           = "sh"
+	tmuxBin            = "tmux"
+	scopeDirectory     = "directory"
+	scopeTab           = "tab"
+	workspaceIDEnvVar  = "HERDR_WORKSPACE_ID"
+	socketPathEnvVar   = "HERDR_SOCKET_PATH"
+	sessionPrefix      = "herdr-toggle-popup-"
+	namespaceHashBytes = 16
+	sessionHashBytes   = 16
 )
 
 // tmuxAttachScript picks the popup's tmux target:
 //   - dedicated session: attach and bind M-l to detach
-//   - legacy default-server session: attach as-is
-//   - neither: create on the dedicated server, then attach
+//   - otherwise: create on the dedicated server, then attach
+//
+// It only ever looks for the namespaced session name on the dedicated server. Sessions named
+// with a legacy identity (no namespace) are never attached to or removed, because identity now
+// always includes the Herdr namespace hash.
 const tmuxAttachScript = `if "$4" -L herdr-toggle-popup -f /dev/null has-session -t "$1" 2>/dev/null; then
   "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
-elif "$4" -f /dev/null has-session -t "$1" 2>/dev/null; then
-  exec "$4" -f /dev/null attach-session -t "$1"
 else
   "$4" -L herdr-toggle-popup -f /dev/null new-session -d -s "$1" -c "$2" "$3"
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" status off
@@ -105,13 +108,18 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 }
 
 func tmuxSessionKey(scopeMode, entrypoint string) (key, cwd string, err error) {
+	namespace, err := namespace()
+	if err != nil {
+		return "", "", err
+	}
+
 	cwd = herdr.ContextField("focused_pane_cwd")
 	if cwd == "" {
 		return "", "", errors.New("could not determine the focused pane's cwd")
 	}
 
 	if scopeMode == scopeDirectory {
-		return fmt.Sprintf("directory:%s:%s", cwd, entrypoint), cwd, nil
+		return fmt.Sprintf("namespace:%s:directory:%s:%s", namespace, cwd, entrypoint), cwd, nil
 	}
 
 	workspaceID := os.Getenv(workspaceIDEnvVar)
@@ -127,10 +135,30 @@ func tmuxSessionKey(scopeMode, entrypoint string) (key, cwd string, err error) {
 		if tabID == "" {
 			return "", "", errors.New("could not determine the focused tab's id")
 		}
-		return fmt.Sprintf("tab:%s:%s:%s", workspaceID, tabID, entrypoint), cwd, nil
+		return fmt.Sprintf("namespace:%s:tab:%s:%s:%s", namespace, workspaceID, tabID, entrypoint), cwd, nil
 	}
 
-	return fmt.Sprintf("workspace:%s:%s", workspaceID, entrypoint), cwd, nil
+	return fmt.Sprintf("namespace:%s:workspace:%s:%s", namespace, workspaceID, entrypoint), cwd, nil
+}
+
+// namespace returns a stable identifier for the current Herdr namespace, derived from
+// HERDR_SOCKET_PATH. Two Herdr instances that expose different sockets therefore never share a
+// saved shell, even when their workspace, tab, or focused-directory values are identical.
+// It errors when HERDR_SOCKET_PATH is unavailable so startup fails before touching tmux instead
+// of silently falling back to a legacy, un-namespaced identity.
+func namespace() (string, error) {
+	socketPath := os.Getenv(socketPathEnvVar)
+	if socketPath == "" {
+		return "", fmt.Errorf("%s must be set", socketPathEnvVar)
+	}
+	return namespaceForSocketPath(socketPath), nil
+}
+
+// namespaceForSocketPath hashes a raw socket path into the fixed-width namespace token used in
+// the session identity.
+func namespaceForSocketPath(socketPath string) string {
+	sum := sha256.Sum256([]byte(socketPath))
+	return hex.EncodeToString(sum[:namespaceHashBytes])
 }
 
 func sessionName(key string) string {

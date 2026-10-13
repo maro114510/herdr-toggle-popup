@@ -3,6 +3,7 @@ package popupshell
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,17 +14,21 @@ import (
 
 // Test list:
 //
-// - workspace scope: execs tmux new-session -A with a stable session name derived from
-//   workspace:<workspace_id>:<entrypoint>, starting in the focused pane cwd
-// - directory scope: derives the tmux session from directory:<focused cwd>:<entrypoint>
-// - tab scope: derives the tmux session from tab:<workspace id>:<focused tab id>:<entrypoint>
+// - workspace scope: execs tmux with a stable session name derived from the namespace hash,
+//   workspace:<workspace_id>, and <entrypoint>, starting in the focused pane cwd
+// - directory scope: derives the tmux session from namespace:<hash>:directory:<focused cwd>:<entrypoint>
+// - tab scope: derives the tmux session from namespace:<hash>:tab:<workspace id>:<focused tab id>:<entrypoint>
+// - namespace: the same scope and entrypoint in different Herdr namespaces yield different sessions
+// - namespace: an unchanged namespace, scope, and entrypoint reuse the saved session name
 // - tmux hides its status line, enables mouse mode, and binds Alt+L to detach
 // - real tmux server: new session only on the dedicated server
-// - real tmux server: legacy default-server session attached instead
 // - real tmux server: dedicated server keeps tmux default mouse bindings and prefix
 // - real tmux server: reopening reuses the dedicated session
+// - real tmux server: legacy sessions on both servers are not removed
+// - real tmux server: a same-name default-server session is not attached to
 // - $SHELL unset: defaults the tmux command to /bin/zsh
 // - missing tmux: reports a clear error and never execs
+// - missing HERDR_SOCKET_PATH: reports a clear error before resolving or execing tmux
 // - missing focused cwd: reports a clear error before execing tmux
 // - missing tab id (tab scope): reports a clear error before execing tmux
 
@@ -31,7 +36,9 @@ const (
 	configDirEnvVar = "HERDR_PLUGIN_CONFIG_DIR"
 	contextEnvVar   = "HERDR_PLUGIN_CONTEXT_JSON"
 	workspaceID     = "ws1"
+	scopeWorkspace  = "workspace"
 	focusedCwd      = "/focused/cwd"
+	testSocketPath  = "/tmp/herdr-namespace-test.sock"
 	testShellPath   = "/opt/homebrew/bin/fish"
 	testShellBin    = "/resolved/sh"
 	testTmuxBin     = "/resolved/tmux"
@@ -42,6 +49,12 @@ const (
 	tmuxClientEnvVar = "TMUX"
 	testSessionName  = "herdr-popup-test"
 )
+
+// namespacedKey prepends the namespace token derived from testSocketPath to a scope-and-entrypoint
+// key, matching the identity tmuxSessionKey builds under the test environment.
+func namespacedKey(scopeKey string) string {
+	return fmt.Sprintf("namespace:%s:%s", namespaceForSocketPath(testSocketPath), scopeKey)
+}
 
 type execCall struct {
 	argv0 string
@@ -55,6 +68,7 @@ func setupEnv(t *testing.T) string {
 	configDir := filepath.Join(t.TempDir(), "plugin-config")
 	t.Setenv(configDirEnvVar, configDir)
 	t.Setenv(workspaceIDEnvVar, workspaceID)
+	t.Setenv(socketPathEnvVar, testSocketPath)
 	t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd"}`)
 	t.Setenv(shellEnvVar, testShellPath)
 	return configDir
@@ -145,11 +159,11 @@ func runTmux(t *testing.T, env []string, tmuxPath string, args ...string) string
 
 // runAttachScript runs the production attach script against the isolated servers.
 // attach-session needs a tty, so the exit code is ignored and only side effects are asserted.
-func runAttachScript(t *testing.T, env []string, tmuxPath string) {
+func runAttachScript(t *testing.T, env []string, tmuxPath, session string) {
 	t.Helper()
 
 	//nolint:gosec // The test drives the production attach script with fixed arguments.
-	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", testSessionName, t.TempDir(), "/bin/sh", tmuxPath)
+	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", session, t.TempDir(), "/bin/sh", tmuxPath)
 	cmd.Env = env
 	_ = cmd.Run()
 }
@@ -162,11 +176,11 @@ func dedicatedTmux(t *testing.T, env []string, tmuxPath string, args ...string) 
 	return runTmux(t, env, tmuxPath, serverArgs...)
 }
 
-// tmuxSessionExists reports whether the test session exists on the server selected by serverArgs.
-func tmuxSessionExists(t *testing.T, env []string, tmuxPath string, serverArgs ...string) bool {
+// tmuxSessionExists reports whether session exists on the server selected by serverArgs.
+func tmuxSessionExists(t *testing.T, env []string, tmuxPath, session string, serverArgs ...string) bool {
 	t.Helper()
 
-	args := append(slices.Clone(serverArgs), "has-session", "-t", testSessionName)
+	args := append(slices.Clone(serverArgs), "has-session", "-t", session)
 	//nolint:gosec // The test controls the tmux binary and every argument.
 	cmd := exec.Command(tmuxPath, args...)
 	cmd.Env = env
@@ -204,17 +218,21 @@ func TestTmuxAttachScriptCreatesNewSessionOnlyOnDedicatedServer(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath)
+	runAttachScript(t, env, tmuxPath, testSessionName)
 
-	if !tmuxSessionExists(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null") {
+	if !tmuxSessionExists(t, env, tmuxPath, testSessionName, "-L", popupSocketName, "-f", "/dev/null") {
 		t.Errorf("session %q was not created on the dedicated server", testSessionName)
 	}
-	if tmuxSessionExists(t, env, tmuxPath, "-f", "/dev/null") {
+	if tmuxSessionExists(t, env, tmuxPath, testSessionName, "-f", "/dev/null") {
 		t.Errorf("session %q exists on the default server, want it only on the dedicated server", testSessionName)
 	}
 }
 
-func TestTmuxAttachScriptAttachesToLegacySessionOnDefaultServer(t *testing.T) {
+// TestTmuxAttachScriptLeavesLegacySessionsUntouched covers the pre-namespace identities: a legacy
+// session may sit on either the dedicated server (created after the dedicated-server migration) or
+// the default server (created before it). Neither may be removed once identity includes the Herdr
+// namespace, and the target namespace opens its own dedicated session.
+func TestTmuxAttachScriptLeavesLegacySessionsUntouched(t *testing.T) {
 	t.Parallel()
 
 	tmuxPath, err := exec.LookPath(tmuxBin)
@@ -224,14 +242,48 @@ func TestTmuxAttachScriptAttachesToLegacySessionOnDefaultServer(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", testSessionName, "-c", t.TempDir(), "/bin/sh")
-	runAttachScript(t, env, tmuxPath)
+	legacySession := sessionName("workspace:ws1:shell")
+	namespacedSession := sessionName(namespacedKey("workspace:ws1:shell"))
 
-	if !tmuxSessionExists(t, env, tmuxPath, "-f", "/dev/null") {
-		t.Errorf("legacy session %q on the default server is gone", testSessionName)
+	runTmux(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null", "new-session", "-d", "-s", legacySession, "-c", t.TempDir(), "/bin/sh")
+	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", legacySession, "-c", t.TempDir(), "/bin/sh")
+
+	runAttachScript(t, env, tmuxPath, namespacedSession)
+
+	if !tmuxSessionExists(t, env, tmuxPath, legacySession, "-L", popupSocketName, "-f", "/dev/null") {
+		t.Errorf("legacy session %q on the dedicated server was removed", legacySession)
 	}
-	if tmuxSessionExists(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null") {
-		t.Error("a dedicated session was created despite a legacy session being available")
+	if !tmuxSessionExists(t, env, tmuxPath, legacySession, "-f", "/dev/null") {
+		t.Errorf("legacy session %q on the default server was removed", legacySession)
+	}
+	if !tmuxSessionExists(t, env, tmuxPath, namespacedSession, "-L", popupSocketName, "-f", "/dev/null") {
+		t.Errorf("namespaced session %q was not created on the dedicated server", namespacedSession)
+	}
+}
+
+// TestTmuxAttachScriptIgnoresDefaultServerSessionWithTargetName guards the removal of the default
+// server attach fallback: even when the default server holds a session whose name exactly matches
+// the target, the script must create the dedicated session instead of attaching to the default one.
+func TestTmuxAttachScriptIgnoresDefaultServerSessionWithTargetName(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	target := sessionName(namespacedKey("workspace:ws1:shell"))
+	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", target, "-c", t.TempDir(), "/bin/sh")
+
+	runAttachScript(t, env, tmuxPath, target)
+
+	if !tmuxSessionExists(t, env, tmuxPath, target, "-L", popupSocketName, "-f", "/dev/null") {
+		t.Errorf("session %q was not created on the dedicated server", target)
+	}
+	if !tmuxSessionExists(t, env, tmuxPath, target, "-f", "/dev/null") {
+		t.Errorf("default-server session %q was removed", target)
 	}
 }
 
@@ -245,7 +297,7 @@ func TestTmuxAttachScriptKeepsDefaultBindingsOnDedicatedServer(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath)
+	runAttachScript(t, env, tmuxPath, testSessionName)
 
 	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "status")); got != "status off" {
 		t.Errorf("session status = %q, want %q", got, "status off")
@@ -275,10 +327,10 @@ func TestTmuxAttachScriptReusesExistingDedicatedSession(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath)
+	runAttachScript(t, env, tmuxPath, testSessionName)
 	created := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{session_created}"))
 
-	runAttachScript(t, env, tmuxPath)
+	runAttachScript(t, env, tmuxPath, testSessionName)
 	again := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{session_created}"))
 
 	if created == "" || created != again {
@@ -297,7 +349,7 @@ func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	wantArgv := wantTmuxWrapperArgv(sessionName("workspace:ws1:shell"), testShellPath)
+	wantArgv := wantTmuxWrapperArgv(sessionName(namespacedKey("workspace:ws1:shell")), testShellPath)
 	if call.argv0 != testShellBin {
 		t.Errorf("argv0 = %q, want %q", call.argv0, testShellBin)
 	}
@@ -320,7 +372,7 @@ func TestRunReadsWorkspaceIDFromPluginContextForNativePopup(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	if got := call.argv[4]; got != sessionName("workspace:ws1:shell") {
+	if got := call.argv[4]; got != sessionName(namespacedKey("workspace:ws1:shell")) {
 		t.Errorf("session = %q, want workspace session derived from plugin context", got)
 	}
 }
@@ -337,7 +389,7 @@ func TestRunExecsTmuxSessionForDirectoryScope(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	wantSession := sessionName("directory:/focused/cwd:shell")
+	wantSession := sessionName(namespacedKey("directory:/focused/cwd:shell"))
 	if got := call.argv[4]; got != wantSession {
 		t.Errorf("session = %q, want %q", got, wantSession)
 	}
@@ -358,7 +410,7 @@ func TestRunInvalidScopePrintsWarningAndFallsBackToWorkspace(t *testing.T) {
 	if !strings.Contains(stderr.String(), "invalid scope") || !strings.Contains(stderr.String(), "bogus-scope") {
 		t.Errorf("stderr = %q, want it to contain an invalid scope warning mentioning bogus-scope", stderr.String())
 	}
-	wantSession := sessionName("workspace:ws1:shell")
+	wantSession := sessionName(namespacedKey("workspace:ws1:shell"))
 	if got := call.argv[4]; got != wantSession {
 		t.Errorf("session = %q, want %q (fallback to workspace scope)", got, wantSession)
 	}
@@ -408,24 +460,24 @@ func TestTmuxSessionKeyTable(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:      "workspace",
-			scopeMode: "workspace",
+			name:      scopeWorkspace,
+			scopeMode: scopeWorkspace,
 			context:   cwdOnlyContext,
-			wantKey:   "workspace:ws1:shell",
+			wantKey:   namespacedKey("workspace:ws1:shell"),
 			wantErr:   false,
 		},
 		{
-			name:      "directory",
-			scopeMode: "directory",
+			name:      scopeDirectory,
+			scopeMode: scopeDirectory,
 			context:   cwdOnlyContext,
-			wantKey:   "directory:/focused/cwd:shell",
+			wantKey:   namespacedKey("directory:/focused/cwd:shell"),
 			wantErr:   false,
 		},
 		{
-			name:      "tab",
+			name:      scopeTab,
 			scopeMode: scopeTab,
 			context:   `{"focused_pane_cwd":"/focused/cwd","tab_id":"tab1"}`,
-			wantKey:   "tab:ws1:tab1:shell",
+			wantKey:   namespacedKey("tab:ws1:tab1:shell"),
 			wantErr:   false,
 		},
 		{
@@ -438,6 +490,7 @@ func TestTmuxSessionKeyTable(t *testing.T) {
 	}
 
 	t.Setenv(workspaceIDEnvVar, workspaceID)
+	t.Setenv(socketPathEnvVar, testSocketPath)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(contextEnvVar, tt.context)
@@ -458,6 +511,57 @@ func TestTmuxSessionKeyTable(t *testing.T) {
 	}
 }
 
+// TestTmuxSessionKeySeparatesNamespaces proves that identical workspace, tab, and directory
+// values in different Herdr namespaces never share a session identity, while the same namespace
+// reproduces the same identity for reuse.
+func TestTmuxSessionKeySeparatesNamespaces(t *testing.T) {
+	const (
+		contextWorkspace = `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd"}`
+		contextTab       = `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd","tab_id":"tab1"}`
+	)
+
+	t.Setenv(workspaceIDEnvVar, workspaceID)
+
+	for _, tt := range []struct {
+		name      string
+		scopeMode string
+		context   string
+	}{
+		{name: scopeWorkspace, scopeMode: scopeWorkspace, context: contextWorkspace},
+		{name: scopeDirectory, scopeMode: scopeDirectory, context: contextWorkspace},
+		{name: scopeTab, scopeMode: scopeTab, context: contextTab},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(contextEnvVar, tt.context)
+
+			t.Setenv(socketPathEnvVar, "/tmp/herdr-a.sock")
+			keyA, _, err := tmuxSessionKey(tt.scopeMode, defaultEntrypoint)
+			if err != nil {
+				t.Fatalf("namespace A: err = %v, want nil", err)
+			}
+
+			t.Setenv(socketPathEnvVar, "/tmp/herdr-b.sock")
+			keyB, _, err := tmuxSessionKey(tt.scopeMode, defaultEntrypoint)
+			if err != nil {
+				t.Fatalf("namespace B: err = %v, want nil", err)
+			}
+
+			if keyA == keyB {
+				t.Errorf("key = %q in both namespaces, want distinct identities for %s scope", keyA, tt.name)
+			}
+
+			t.Setenv(socketPathEnvVar, "/tmp/herdr-a.sock")
+			keyAgain, _, err := tmuxSessionKey(tt.scopeMode, defaultEntrypoint)
+			if err != nil {
+				t.Fatalf("namespace A second call: err = %v, want nil", err)
+			}
+			if keyAgain != keyA {
+				t.Errorf("key = %q, want repeats in the same namespace to reproduce %q", keyAgain, keyA)
+			}
+		})
+	}
+}
+
 func TestRunExecsTmuxSessionForTabScope(t *testing.T) {
 	configDir := setupEnv(t)
 	writeConfig(t, configDir, "scope = \"tab\"\n")
@@ -470,7 +574,7 @@ func TestRunExecsTmuxSessionForTabScope(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	wantSession := sessionName("tab:ws1:tab1:shell")
+	wantSession := sessionName(namespacedKey("tab:ws1:tab1:shell"))
 	if got := call.argv[4]; got != wantSession {
 		t.Errorf("session = %q, want %q", got, wantSession)
 	}
@@ -593,6 +697,38 @@ func TestRunExecFailureReportsError(t *testing.T) {
 	}
 	if stderr.Len() == 0 {
 		t.Error("stderr is empty, want an error message")
+	}
+}
+
+// The namespace requirement is checked before any tmux lookup or connection, so an unset
+// HERDR_SOCKET_PATH must fail without even resolving tmux, let alone execing.
+func TestRunMissingSocketPathReportsErrorBeforeExec(t *testing.T) {
+	setupEnv(t)
+	t.Setenv(socketPathEnvVar, "")
+
+	var stderr bytes.Buffer
+	lookPathCalled := false
+	lookPath := func(file string) (string, error) {
+		lookPathCalled = true
+		return file, nil
+	}
+	execCalled := false
+	code := run([]string{defaultEntrypoint}, &stderr, lookPath, func(string, []string, []string) error {
+		execCalled = true
+		return nil
+	})
+
+	if code == 0 {
+		t.Fatal("exit code = 0, want non-zero")
+	}
+	if lookPathCalled {
+		t.Error("lookPath was called despite missing HERDR_SOCKET_PATH; the check must precede tmux setup")
+	}
+	if execCalled {
+		t.Error("exec was called despite missing HERDR_SOCKET_PATH")
+	}
+	if !strings.Contains(stderr.String(), socketPathEnvVar) {
+		t.Errorf("stderr = %q, want it to name %s", stderr.String(), socketPathEnvVar)
 	}
 }
 
