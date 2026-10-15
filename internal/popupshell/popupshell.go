@@ -36,13 +36,21 @@ const (
 //   - dedicated session: attach and bind M-l to detach
 //   - otherwise: create on the dedicated server, then attach
 //
+// Both paths force set-clipboard=external on the dedicated server. tmux then writes its own copies,
+// such as a mouse-drag copy-mode selection, to the outer terminal, while an OSC52 sequence emitted
+// by a pane can no longer create or overwrite a tmux buffer as it can with set-clipboard=on. The
+// option is applied on every connection because tmux keeps a server option across reattaches, so an
+// existing server can still carry a stale value.
+//
 // It only ever looks for the namespaced session name on the dedicated server. Sessions named
 // with a legacy identity (no namespace) are never attached to or removed, because identity now
 // always includes the Herdr namespace hash.
 const tmuxAttachScript = `if "$4" -L herdr-toggle-popup -f /dev/null has-session -t "$1" 2>/dev/null; then
+  "$4" -L herdr-toggle-popup -f /dev/null set-option -s set-clipboard external
   "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
 else
   "$4" -L herdr-toggle-popup -f /dev/null new-session -d -s "$1" -c "$2" "$3"
+  "$4" -L herdr-toggle-popup -f /dev/null set-option -s set-clipboard external
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" status off
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" mouse on
   "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
