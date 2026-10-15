@@ -8,7 +8,7 @@ Thanks for improving herdr-toggle-popup. Contributions are accepted under the Ap
 | --- | --- |
 | Go | The version named in [go.mod](./go.mod) |
 | tmux | Available on PATH |
-| Herdr | 0.9.0 or newer for manual checks |
+| Herdr | 0.9.3 or newer for manual checks |
 | git | Any recent version |
 | make | Optional, for the convenience targets |
 
