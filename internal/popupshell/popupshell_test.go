@@ -2,6 +2,7 @@ package popupshell
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Test list:
@@ -21,6 +23,9 @@ import (
 // - namespace: the same scope and entrypoint in different Herdr namespaces yield different sessions
 // - namespace: an unchanged namespace, scope, and entrypoint reuse the saved session name
 // - tmux hides its status line, enables mouse mode, and binds Alt+L to detach
+// - tmux forces set-clipboard=external in both the create and reattach paths
+// - real tmux server: the dedicated server reports set-clipboard external for new and existing sessions
+// - real tmux server: a pane-originated OSC52 sequence never becomes a tmux buffer
 // - real tmux server: new session only on the dedicated server
 // - real tmux server: dedicated server keeps tmux default mouse bindings and prefix
 // - real tmux server: reopening reuses the dedicated session
@@ -48,6 +53,11 @@ const (
 	tmuxSocketDirVar = "TMUX_TMPDIR"
 	tmuxClientEnvVar = "TMUX"
 	testSessionName  = "herdr-popup-test"
+
+	// Pane-OSC52 probe timings. The pane prints a sentinel after the sequence, so the poll only
+	// waits as long as the pane needs to run the probe command.
+	osc52ProbeTimeout  = 5 * time.Second
+	osc52ProbeInterval = 50 * time.Millisecond
 )
 
 // namespacedKey prepends the namespace token derived from testSocketPath to a scope-and-entrypoint
@@ -338,6 +348,90 @@ func TestTmuxAttachScriptReusesExistingDedicatedSession(t *testing.T) {
 	}
 }
 
+// TestTmuxAttachScriptSetsExternalClipboardForNewAndExistingSessions covers both delivery paths of
+// the clipboard contract: a freshly created session and a reattach to a saved one must leave the
+// dedicated server on set-clipboard=external, so a value changed in between is corrected.
+func TestTmuxAttachScriptSetsExternalClipboardForNewAndExistingSessions(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName)
+	assertDedicatedSetClipboardExternal(t, env, tmuxPath, "new session")
+
+	dedicatedTmux(t, env, tmuxPath, "set-option", "-s", "set-clipboard", "on")
+	runAttachScript(t, env, tmuxPath, testSessionName)
+	assertDedicatedSetClipboardExternal(t, env, tmuxPath, "existing session")
+}
+
+func assertDedicatedSetClipboardExternal(t *testing.T, env []string, tmuxPath, phase string) {
+	t.Helper()
+
+	want := "set-clipboard external"
+	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-s", "set-clipboard")); got != want {
+		t.Errorf("%s: dedicated server set-clipboard = %q, want %q", phase, got, want)
+	}
+}
+
+// TestTmuxAttachScriptKeepsPaneOSC52OutOfTmuxBuffers proves the security side of
+// set-clipboard=external: a sequence emitted by a program inside the pane cannot create a tmux
+// buffer. The second phase repeats the probe with set-clipboard=on and expects a buffer, so a
+// silent probe cannot pass the first phase by accident.
+func TestTmuxAttachScriptKeepsPaneOSC52OutOfTmuxBuffers(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName)
+
+	runPaneOSC52Probe(t, env, tmuxPath, "pane-external")
+	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "list-buffers")); got != "" {
+		t.Errorf("set-clipboard=external buffers = %q, want no tmux buffer from a pane-originated OSC52", got)
+	}
+
+	dedicatedTmux(t, env, tmuxPath, "set-option", "-s", "set-clipboard", "on")
+	runPaneOSC52Probe(t, env, tmuxPath, "pane-on")
+	if got := dedicatedTmux(t, env, tmuxPath, "list-buffers"); !strings.Contains(got, "pane-on") {
+		t.Errorf("set-clipboard=on buffers = %q, want the pane-originated OSC52 payload %q", got, "pane-on")
+	}
+}
+
+// runPaneOSC52Probe replaces the session's pane with a command that emits an OSC52 sequence carrying
+// payload, then waits for a sentinel printed after the sequence, so tmux has parsed it on return.
+// respawn-pane avoids send-keys, whose echoed command line would make the sentinel match too early.
+func runPaneOSC52Probe(t *testing.T, env []string, tmuxPath, payload string) {
+	t.Helper()
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(payload))
+	const sentinel = "osc52-probe-done"
+	command := fmt.Sprintf(
+		`printf '\033]52;c;%s\007'; printf '%s\n'; sleep 60`,
+		encoded, sentinel,
+	)
+	dedicatedTmux(t, env, tmuxPath, "respawn-pane", "-k", "-t", testSessionName, command)
+
+	deadline := time.Now().Add(osc52ProbeTimeout)
+	for {
+		if strings.Contains(dedicatedTmux(t, env, tmuxPath, "capture-pane", "-p", "-t", testSessionName), sentinel) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane never printed %q; the OSC52 probe did not run", sentinel)
+		}
+		time.Sleep(osc52ProbeInterval)
+	}
+}
+
 //nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
 func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	setupEnv(t)
@@ -613,11 +707,24 @@ func TestRunConfiguresDedicatedTmuxServerBeforeAttaching(t *testing.T) {
 		"set-option -t \"$1\" status off",
 		"bind-key -n M-l detach-client",
 		"set-option -t \"$1\" mouse on",
+		"set-option -s set-clipboard external",
 		"attach-session -t \"$1\"",
 	} {
 		if !strings.Contains(tmuxAttachScript, want) {
 			t.Fatalf("tmux attach script = %q, want it to contain %q", tmuxAttachScript, want)
 		}
+	}
+}
+
+// TestRunForcesExternalClipboardInBothAttachPaths pins the option to both branches of the script.
+// The create path must set it on the new server, and the reattach path must set it again because a
+// server can carry a different value from an earlier version or a manual change.
+func TestRunForcesExternalClipboardInBothAttachPaths(t *testing.T) {
+	t.Parallel()
+
+	const want = "set-option -s set-clipboard external"
+	if got := strings.Count(tmuxAttachScript, want); got != 2 {
+		t.Fatalf("tmux attach script sets %q %d times, want once on the reattach path and once on the create path:\n%s", want, got, tmuxAttachScript)
 	}
 }
 
