@@ -98,8 +98,8 @@ func TestManifestPluginMetadata(t *testing.T) {
 	if m.Name != "Toggle Popup" {
 		t.Errorf("Name = %q, want %q", m.Name, "Toggle Popup")
 	}
-	if m.MinHerdrVersion != "0.9.0" {
-		t.Errorf("MinHerdrVersion = %q, want %q", m.MinHerdrVersion, "0.9.0")
+	if m.MinHerdrVersion != "0.9.3" {
+		t.Errorf("MinHerdrVersion = %q, want %q", m.MinHerdrVersion, "0.9.3")
 	}
 	wantPlatforms := []string{"macos", "linux"}
 	if !reflect.DeepEqual(m.Platforms, wantPlatforms) {
