@@ -522,8 +522,8 @@ func TestRunValidScopePrintsNoWarning(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	if strings.Contains(stderr.String(), "invalid scope") {
-		t.Errorf("stderr = %q, want no invalid scope warning", stderr.String())
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty for a valid config", stderr.String())
 	}
 }
 
@@ -538,8 +538,29 @@ func TestRunUnsetScopePrintsNoWarning(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	if strings.Contains(stderr.String(), "invalid scope") {
-		t.Errorf("stderr = %q, want no invalid scope warning", stderr.String())
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty when no config file exists", stderr.String())
+	}
+}
+
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunMalformedConfigPrintsWarningAndUsesDefaults(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "scope = \"directory\n")
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "could not parse") {
+		t.Errorf("stderr = %q, want a config parse warning", stderr.String())
+	}
+	wantSession := sessionName(namespacedKey("workspace:ws1:shell"))
+	if got := call.argv[4]; got != wantSession {
+		t.Errorf("session = %q, want the workspace default %q", got, wantSession)
 	}
 }
 

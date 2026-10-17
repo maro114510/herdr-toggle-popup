@@ -107,6 +107,10 @@ height = 20
 
 These keys are independent of the legacy `popup_size.<entrypoint>` resize steps, which are not used for native popup dimensions.
 
+## Invalid configuration
+
+A `config.toml` that cannot be read or parsed is reported on stderr and the plugin continues with the defaults, so a broken file never blocks the toggle. A missing file is the normal opt-out and stays silent.
+
 ## Diagnostics
 
 Run the doctor command when collecting support details:

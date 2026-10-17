@@ -69,16 +69,26 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return run(args, stderr, exec.LookPath, syscall.Exec)
 }
 
+// loadConfig reads config.toml and reports every fallback warning to stderr with the command
+// prefix, including an unrecognized scope that falls back to workspace.
+func loadConfig(stderr io.Writer) config.Config {
+	cfg := config.Load()
+	for _, warning := range cfg.Warnings {
+		_, _ = fmt.Fprintf(stderr, "popup-shell: %s\n", warning)
+	}
+	if !config.IsValidScope(cfg.Scope) {
+		_, _ = fmt.Fprintf(stderr, "popup-shell: invalid scope %q in config; falling back to workspace scope\n", cfg.Scope)
+	}
+	return cfg
+}
+
 func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess execFunc) int {
 	entrypoint := defaultEntrypoint
 	if len(args) > 0 && args[0] != "" {
 		entrypoint = args[0]
 	}
 
-	cfg := config.Load()
-	if !config.IsValidScope(cfg.Scope) {
-		_, _ = fmt.Fprintf(stderr, "popup-shell: invalid scope %q in config; falling back to workspace scope\n", cfg.Scope)
-	}
+	cfg := loadConfig(stderr)
 	sessionKey, cwd, err := tmuxSessionKey(cfg.Scope, entrypoint)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)

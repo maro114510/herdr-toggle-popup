@@ -4,7 +4,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +18,7 @@ import (
 
 const (
 	configDirEnvVar = "HERDR_PLUGIN_CONFIG_DIR"
+	configFile      = "config.toml"
 	defaultScope    = "workspace"
 	scopeDirectory  = "directory"
 	scopeTab        = "tab"
@@ -41,9 +44,11 @@ const (
 	cellBitSize    = 16
 )
 
-// Config is the subset of config.toml the plugin reads. Missing env var, directory, file, or key
-// all degrade to the same defaults toggle.sh uses; a malformed file is treated as absent rather
-// than surfaced as an error, since scoping/sizing is best-effort and must never fail the toggle.
+// Config is the subset of config.toml the plugin reads. A missing env var, directory, or file
+// degrades silently to the same defaults toggle.sh uses, since that is the normal opt-out. A file
+// that exists but cannot be read or decoded also degrades to the defaults, but records a warning
+// in Warnings so the caller can tell the user why their settings were not applied; the failure
+// never fails the toggle.
 type Config struct {
 	Scope     string
 	PopupSize map[string]string
@@ -54,8 +59,8 @@ type Config struct {
 	Width  string
 	Height string
 
-	// Warnings lists configuration values that were unusable and replaced by a default, for the
-	// caller to surface to the user.
+	// Warnings lists configuration values or files that were unusable and replaced by a default,
+	// for the caller to surface to the user.
 	Warnings []string
 }
 
@@ -81,8 +86,17 @@ func Load() Config {
 		Width     any               `toml:"width"`
 		Height    any               `toml:"height"`
 	}
-	path := filepath.Clean(filepath.Join(dir, "config.toml"))
-	if _, err := toml.DecodeFile(path, &parsed); err != nil {
+	path := filepath.Clean(filepath.Join(dir, configFile))
+	//nolint:gosec // path is HERDR_PLUGIN_CONFIG_DIR joined with the fixed configFile name.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			def.Warnings = []string{fmt.Sprintf("could not read %s: %v; using defaults", configFile, readFailureReason(err))}
+		}
+		return def
+	}
+	if err := toml.Unmarshal(data, &parsed); err != nil {
+		def.Warnings = []string{decodeFailureWarning(err)}
 		return def
 	}
 
@@ -105,6 +119,29 @@ func Load() Config {
 		}
 	}
 	return cfg
+}
+
+// readFailureReason unwraps the path from a file error, so the warning names config.toml once
+// instead of repeating the resolved path the error already carries.
+func readFailureReason(err error) error {
+	if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+		return pathErr.Err
+	}
+	return err
+}
+
+// decodeFailureWarning describes a config.toml that could not be decoded. A syntax error is
+// reported as "malformed TOML at line N"; any other decode failure, such as a value of the wrong
+// type, keeps the same shape without a line. Neither branch echoes the parser message, which can
+// quote a fragment of the file.
+func decodeFailureWarning(err error) string {
+	if parseErr, ok := errors.AsType[toml.ParseError](err); ok {
+		if parseErr.Position.Line > 0 {
+			return fmt.Sprintf("could not parse %s: malformed TOML at line %d; using defaults", configFile, parseErr.Position.Line)
+		}
+		return fmt.Sprintf("could not parse %s: malformed TOML; using defaults", configFile)
+	}
+	return fmt.Sprintf("could not decode %s: invalid value; using defaults", configFile)
 }
 
 // resolveDimension validates a decoded width or height value, returning the string to pass to
