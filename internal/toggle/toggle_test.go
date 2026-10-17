@@ -28,6 +28,9 @@ func TestRunOpensFullScreenNativePopup(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty when no config file exists", stderr)
+	}
 	log := readLog(t, logPath)
 	want := fullScreenPopupArgv
 	if log != want {
@@ -82,6 +85,30 @@ func TestRunWarnsAndFallsBackOnInvalidDimensions(t *testing.T) {
 	want := fullScreenPopupArgv
 	if log != want {
 		t.Errorf("argv = %q, want the 100%% fallback, %q", log, want)
+	}
+}
+
+func TestRunWarnsAndFallsBackOnMalformedConfig(t *testing.T) {
+	logPath := newFakeHerdr(t)
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("scope = \"directory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/focused/cwd"}`)
+
+	code, stderr := invoke(t, "shell")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "could not parse") || !strings.HasPrefix(stderr, "toggle: ") {
+		t.Errorf("stderr = %q, want a toggle-prefixed config parse warning", stderr)
+	}
+	log := readLog(t, logPath)
+	want := fullScreenPopupArgv
+	if log != want {
+		t.Errorf("argv = %q, want the default full-screen popup %q", log, want)
 	}
 }
 

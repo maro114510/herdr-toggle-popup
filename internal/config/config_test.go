@@ -46,15 +46,25 @@ func TestLoad_ConfigDirSetButFileMissing_DefaultsToWorkspace(t *testing.T) {
 	if cfg.Scope != defaultScope {
 		t.Errorf("Scope = %q, want %q", cfg.Scope, defaultScope)
 	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none for a missing file", cfg.Warnings)
+	}
 }
 
 func TestLoad_EmptyFile_DefaultsToWorkspace(t *testing.T) {
-	t.Setenv(configDirEnvVar, writeConfigFile(t, ""))
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(configDirEnvVar, dir)
 
 	cfg := Load()
 
 	if cfg.Scope != defaultScope {
 		t.Errorf("Scope = %q, want %q", cfg.Scope, defaultScope)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none for an empty file", cfg.Warnings)
 	}
 }
 
@@ -65,6 +75,9 @@ func TestLoad_ScopeDirectory(t *testing.T) {
 
 	if cfg.Scope != "directory" {
 		t.Errorf("Scope = %q, want directory", cfg.Scope)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none for a valid config", cfg.Warnings)
 	}
 }
 
@@ -168,8 +181,10 @@ func TestLoad_PopupSizeDifferentEntrypointNotApplied(t *testing.T) {
 	}
 }
 
-func TestLoad_MalformedTOML_TreatedAsAbsent(t *testing.T) {
-	t.Setenv(configDirEnvVar, writeConfigFile(t, "not valid toml{{{\n"))
+// scope = secret-value is invalid TOML (an unquoted value), and BurntSushi's own message quotes
+// the offending token. The warning must report the failure without echoing that fragment.
+func TestLoad_MalformedTOML_WarnsAndFallsBackWithoutEchoingContents(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "scope = secret-value\n"))
 
 	cfg := Load()
 
@@ -178,6 +193,55 @@ func TestLoad_MalformedTOML_TreatedAsAbsent(t *testing.T) {
 	}
 	if got := cfg.PopupSizeSteps("shell"); got != "" {
 		t.Errorf("PopupSizeSteps(shell) = %q, want empty on malformed config", got)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "could not parse") {
+		t.Fatalf("Warnings = %v, want one parse warning", cfg.Warnings)
+	}
+	if !strings.Contains(cfg.Warnings[0], "line 1") {
+		t.Errorf("warning = %q, want the failing line", cfg.Warnings[0])
+	}
+	if strings.Contains(cfg.Warnings[0], "secret") {
+		t.Errorf("warning = %q, want it to not echo configuration contents", cfg.Warnings[0])
+	}
+}
+
+func TestLoad_UnreadableConfigFile_WarnsAndFallsBack(t *testing.T) {
+	dir := t.TempDir()
+	// A directory where config.toml is expected makes os.ReadFile fail with something other than
+	// fs.ErrNotExist on every supported platform, and needs no permission bits.
+	if err := os.Mkdir(filepath.Join(dir, "config.toml"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(configDirEnvVar, dir)
+
+	cfg := Load()
+
+	if cfg.Scope != defaultScope {
+		t.Errorf("Scope = %q, want %q on a read failure", cfg.Scope, defaultScope)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "could not read") {
+		t.Errorf("Warnings = %v, want one read warning", cfg.Warnings)
+	}
+	if strings.Contains(cfg.Warnings[0], dir) {
+		t.Errorf("warning = %q, want it to not echo the resolved config path", cfg.Warnings[0])
+	}
+}
+
+// scope = 5 is valid TOML but the wrong type for the string field, so BurntSushi reports a plain
+// decode error rather than a ParseError. The warning must name a decode failure, not a syntax one.
+func TestLoad_WrongTypeValue_WarnsAndFallsBack(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "scope = 5\n"))
+
+	cfg := Load()
+
+	if cfg.Scope != defaultScope {
+		t.Errorf("Scope = %q, want %q on a decode failure", cfg.Scope, defaultScope)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "could not decode") {
+		t.Fatalf("Warnings = %v, want one decode warning", cfg.Warnings)
+	}
+	if strings.Contains(cfg.Warnings[0], "malformed TOML") {
+		t.Errorf("warning = %q, want it to not report a type mismatch as malformed TOML", cfg.Warnings[0])
 	}
 }
 
