@@ -36,9 +36,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	cfg := config.Load()
+	for _, warning := range cfg.Warnings {
+		_, _ = fmt.Fprintf(stderr, "toggle: %s\n", warning)
+	}
+
 	ctx := context.Background()
 	client := herdr.NewClient()
-	closedLegacy, err := closeVisibleLegacyOverlay(ctx, client, args[0], cwd)
+	closedLegacy, err := closeVisibleLegacyOverlay(ctx, client, args[0], cwd, cfg.Scope)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: %v\n", err)
 		return 1
@@ -46,7 +51,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if closedLegacy {
 		return 0
 	}
-	if err := client.PluginPopupOpen(ctx, pluginID, args[0], cwd); err != nil {
+	if err := client.PluginPopupOpen(ctx, pluginID, args[0], cwd, cfg.Width, cfg.Height); err != nil {
 		_, _ = fmt.Fprintf(stderr, "toggle: failed to open popup: %v\n", err)
 		return 1
 	}
@@ -57,13 +62,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 // zoomed overlay and recorded its pane ID. If such an overlay is still visible when the updated
 // action first runs, close it instead of opening a native popup on top of it. Native popups are
 // not added to this registry.
-func closeVisibleLegacyOverlay(ctx context.Context, client *herdr.Client, entrypoint, cwd string) (bool, error) {
+func closeVisibleLegacyOverlay(ctx context.Context, client *herdr.Client, entrypoint, cwd, scope string) (bool, error) {
 	stateDir := os.Getenv(stateDirEnvVar)
 	if stateDir == "" {
 		return false, nil
 	}
 
-	key, err := legacyStateKey(entrypoint, cwd)
+	key, err := legacyStateKey(entrypoint, cwd, scope)
 	if err != nil {
 		return false, fmt.Errorf("could not determine legacy popup scope: %w", err)
 	}
@@ -101,8 +106,7 @@ func closeLegacyOverlay(ctx context.Context, client *herdr.Client, store *state.
 	return true, nil
 }
 
-func legacyStateKey(entrypoint, cwd string) (string, error) {
-	scope := config.Load().Scope
+func legacyStateKey(entrypoint, cwd, scope string) (string, error) {
 	if !config.IsValidScope(scope) {
 		scope = "workspace"
 	}

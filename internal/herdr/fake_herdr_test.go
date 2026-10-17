@@ -36,7 +36,7 @@ case "$1 $2" in
     case "$3" in
       open)
         if [ "$9" = "popup" ]; then
-          assert_args 'plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus' "$@"
+          assert_args "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width ${FAKE_HERDR_EXPECT_WIDTH:-100%} --height ${FAKE_HERDR_EXPECT_HEIGHT:-100%} --cwd /focused/cwd --focus" "$@"
           exit_code="${FAKE_HERDR_OPEN_EXIT:-0}"
           if [ "$exit_code" -ne 0 ]; then
             printf 'stub open failure\n' >&2
