@@ -94,6 +94,19 @@ scope = "directory"
 
 Use `scope = "tab"` to scope it to a particular tab within a workspace. The popup process reads the invocation context so these scopes also work with native popup panes, which do not receive `HERDR_PANE_ID`.
 
+## Popup size
+
+By default the popup fills the terminal. To open it at a different size, create `$HERDR_PLUGIN_CONFIG_DIR/config.toml` with:
+
+```toml
+width = "80%"
+height = 20
+```
+
+`width` and `height` each accept either a percentage of the terminal area (`"80%"`, from 1% to 100%) or a number of terminal cells (`20`), and each defaults to `100%`. They set the popup's outer size, including its border, exactly as Herdr's own popup dimensions do, and Herdr clamps values below its minimum. An invalid value is ignored with a warning on stderr and falls back to `100%`.
+
+These keys are independent of the legacy `popup_size.<entrypoint>` resize steps, which are not used for native popup dimensions.
+
 ## Diagnostics
 
 Run the doctor command when collecting support details:

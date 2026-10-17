@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -177,6 +178,187 @@ func TestLoad_MalformedTOML_TreatedAsAbsent(t *testing.T) {
 	}
 	if got := cfg.PopupSizeSteps("shell"); got != "" {
 		t.Errorf("PopupSizeSteps(shell) = %q, want empty on malformed config", got)
+	}
+}
+
+func TestLoad_NoConfigDirEnv_DefaultsDimensionsToFullScreen(t *testing.T) {
+	t.Setenv(configDirEnvVar, "")
+
+	cfg := Load()
+
+	if cfg.Width != defaultPopupDimension || cfg.Height != defaultPopupDimension {
+		t.Errorf("dimensions = %q x %q, want %q x %q", cfg.Width, cfg.Height, defaultPopupDimension, defaultPopupDimension)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", cfg.Warnings)
+	}
+}
+
+func TestLoad_DimensionsAbsent_DefaultToFullScreen(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, `scope = "workspace"`+"\n"))
+
+	cfg := Load()
+
+	if cfg.Width != defaultPopupDimension || cfg.Height != defaultPopupDimension {
+		t.Errorf("dimensions = %q x %q, want %q x %q", cfg.Width, cfg.Height, defaultPopupDimension, defaultPopupDimension)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", cfg.Warnings)
+	}
+}
+
+func TestLoad_DimensionsAsPercentages(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "width = \"80%\"\nheight = \"40%\"\n"))
+
+	cfg := Load()
+
+	if cfg.Width != "80%" || cfg.Height != "40%" {
+		t.Errorf("dimensions = %q x %q, want 80%% x 40%%", cfg.Width, cfg.Height)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", cfg.Warnings)
+	}
+}
+
+func TestLoad_DimensionsAsCellIntegers(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "width = 120\nheight = 30\n"))
+
+	cfg := Load()
+
+	if cfg.Width != "120" || cfg.Height != "30" {
+		t.Errorf("dimensions = %q x %q, want 120 x 30", cfg.Width, cfg.Height)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", cfg.Warnings)
+	}
+}
+
+func TestLoad_DimensionAsCellString(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "width = \"120\"\n"))
+
+	cfg := Load()
+
+	if cfg.Width != "120" {
+		t.Errorf("Width = %q, want 120", cfg.Width)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", cfg.Warnings)
+	}
+}
+
+func TestLoad_InvalidWidth_WarnsAndFallsBack(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "width = \"wide\"\n"))
+
+	cfg := Load()
+
+	if cfg.Width != defaultPopupDimension {
+		t.Errorf("Width = %q, want fallback %q", cfg.Width, defaultPopupDimension)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "invalid width") {
+		t.Errorf("Warnings = %v, want one invalid width warning", cfg.Warnings)
+	}
+}
+
+func TestLoad_InvalidHeight_WarnsAndFallsBack(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "height = \"0%\"\n"))
+
+	cfg := Load()
+
+	if cfg.Height != defaultPopupDimension {
+		t.Errorf("Height = %q, want fallback %q", cfg.Height, defaultPopupDimension)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "invalid height") {
+		t.Errorf("Warnings = %v, want one invalid height warning", cfg.Warnings)
+	}
+}
+
+func TestLoad_OutOfRangeDimensions_WarnAndFallBack(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "width = 65536\nheight = \"101%\"\n"))
+
+	cfg := Load()
+
+	if cfg.Width != defaultPopupDimension || cfg.Height != defaultPopupDimension {
+		t.Errorf("dimensions = %q x %q, want %q defaults", cfg.Width, cfg.Height, defaultPopupDimension)
+	}
+	if len(cfg.Warnings) != 2 {
+		t.Errorf("Warnings = %v, want a warning for each out-of-range dimension", cfg.Warnings)
+	}
+}
+
+func TestLoad_InvalidWidthKeepsValidHeight(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "width = \"wide\"\nheight = \"40%\"\n"))
+
+	cfg := Load()
+
+	if cfg.Width != defaultPopupDimension {
+		t.Errorf("Width = %q, want fallback %q", cfg.Width, defaultPopupDimension)
+	}
+	if cfg.Height != "40%" {
+		t.Errorf("Height = %q, want the valid value to survive", cfg.Height)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "invalid width") {
+		t.Errorf("Warnings = %v, want only the invalid width warning", cfg.Warnings)
+	}
+}
+
+func TestLoad_WrongTypeDimension_WarnsAndFallsBackWithoutEchoingValue(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "width = 1.5\n"))
+
+	cfg := Load()
+
+	if cfg.Width != defaultPopupDimension {
+		t.Errorf("Width = %q, want fallback %q", cfg.Width, defaultPopupDimension)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "invalid width") {
+		t.Fatalf("Warnings = %v, want one invalid width warning", cfg.Warnings)
+	}
+	if strings.Contains(cfg.Warnings[0], "1.5") {
+		t.Errorf("warning = %q, want it to not echo the unsupported TOML value", cfg.Warnings[0])
+	}
+}
+
+func TestLoad_PopupSizeNotInterpretedAsDimensions(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, `popup_size.shell = "right:0.5:3"`+"\n"))
+
+	cfg := Load()
+
+	if cfg.Width != defaultPopupDimension || cfg.Height != defaultPopupDimension {
+		t.Errorf("dimensions = %q x %q, want defaults when only popup_size is set", cfg.Width, cfg.Height)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none for legacy popup_size", cfg.Warnings)
+	}
+}
+
+func TestValidateDimension(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		value string
+		want  bool
+	}{
+		{"100%", true},
+		{"80%", true},
+		{"1%", true},
+		{"0%", false},
+		{"101%", false},
+		{"", false},
+		{"80", true},
+		{"0", true},
+		{"65535", true},
+		{"65536", false},
+		{"-5", false},
+		{"wide", false},
+		{"1.5", false},
+		{"80% ", false},
+		{"+80", false},
+		{"-0", false},
+		{"007", true},
+	}
+	for _, tc := range cases {
+		if got := validateDimension(tc.value); got != tc.want {
+			t.Errorf("validateDimension(%q) = %v, want %v", tc.value, got, tc.want)
+		}
 	}
 }
 

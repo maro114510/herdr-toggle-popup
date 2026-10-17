@@ -115,18 +115,20 @@ func (c *Client) PluginPaneOpen(ctx context.Context, pluginID, entrypoint, cwd s
 	return resp.Result.PluginPane.Pane.PaneID, resp.Result.PluginPane.Pane.TabID, nil
 }
 
-// PluginPopupOpen opens a full-screen native Herdr popup. Native popups own an independent
-// terminal surface instead of a zoomed pane, so Herdr sizes their PTY to the area inside its
-// border before starting the command. The API intentionally returns a plain {"type":"ok"}
-// response: a popup has no public pane ID and is not a plugin pane.
-func (c *Client) PluginPopupOpen(ctx context.Context, pluginID, entrypoint, cwd string) error {
+// PluginPopupOpen opens a native Herdr popup sized to the outer width and height. Width and
+// height are the values Herdr's --width and --height accept: a cell count or a percentage such as
+// "80%"; the caller falls back to "100%" when configuration is absent or unusable. Native popups
+// own an independent terminal surface instead of a zoomed pane, so Herdr sizes their PTY to the
+// area inside its border before starting the command. The API intentionally returns a plain
+// {"type":"ok"} response: a popup has no public pane ID and is not a plugin pane.
+func (c *Client) PluginPopupOpen(ctx context.Context, pluginID, entrypoint, cwd, width, height string) error {
 	stdout, stderr, err := c.run(ctx,
 		"plugin", "pane", "open",
 		"--plugin", pluginID,
 		"--entrypoint", entrypoint,
 		"--placement", "popup",
-		"--width", "100%",
-		"--height", "100%",
+		"--width", width,
+		"--height", height,
 		"--cwd", cwd,
 		"--focus",
 	)

@@ -2,11 +2,15 @@ package toggle
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/maro114510/herdr-toggle-popup/internal/state"
 )
+
+const fullScreenPopupArgv = "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
 
 func invoke(t *testing.T, args ...string) (int, string) {
 	t.Helper()
@@ -16,6 +20,79 @@ func invoke(t *testing.T, args ...string) (int, string) {
 
 func TestRunOpensFullScreenNativePopup(t *testing.T) {
 	logPath := newFakeHerdr(t)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/focused/cwd"}`)
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
+
+	code, stderr := invoke(t, "shell")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	log := readLog(t, logPath)
+	want := fullScreenPopupArgv
+	if log != want {
+		t.Errorf("argv = %q, want %q", log, want)
+	}
+}
+
+func TestRunAppliesConfiguredPopupDimensions(t *testing.T) {
+	logPath := newFakeHerdr(t)
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("width = \"80%\"\nheight = 20\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/focused/cwd"}`)
+	t.Setenv("STUB_HERDR_EXPECT_WIDTH", "80%")
+	t.Setenv("STUB_HERDR_EXPECT_HEIGHT", "20")
+
+	code, stderr := invoke(t, "shell")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty for valid dimensions", stderr)
+	}
+	log := readLog(t, logPath)
+	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 80% --height 20 --cwd /focused/cwd --focus\n"
+	if log != want {
+		t.Errorf("argv = %q, want %q", log, want)
+	}
+}
+
+func TestRunWarnsAndFallsBackOnInvalidDimensions(t *testing.T) {
+	logPath := newFakeHerdr(t)
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("width = \"wide\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/focused/cwd"}`)
+
+	code, stderr := invoke(t, "shell")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "invalid width") {
+		t.Errorf("stderr = %q, want an invalid width warning", stderr)
+	}
+	log := readLog(t, logPath)
+	want := fullScreenPopupArgv
+	if log != want {
+		t.Errorf("argv = %q, want the 100%% fallback, %q", log, want)
+	}
+}
+
+func TestRunDoesNotInterpretPopupSizeAsDimensions(t *testing.T) {
+	logPath := newFakeHerdr(t)
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("popup_size.shell = \"right:0.5:3\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/focused/cwd"}`)
 
 	code, stderr := invoke(t, "shell")
@@ -23,7 +100,7 @@ func TestRunOpensFullScreenNativePopup(t *testing.T) {
 		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
 	log := readLog(t, logPath)
-	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
+	want := fullScreenPopupArgv
 	if log != want {
 		t.Errorf("argv = %q, want %q", log, want)
 	}
@@ -59,6 +136,8 @@ func TestRunRejectsMissingFocusedCwdWithoutCallingHerdr(t *testing.T) {
 
 func TestRunReportsNativePopupOpenFailure(t *testing.T) {
 	newFakeHerdr(t)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/focused/cwd"}`)
 	t.Setenv("STUB_HERDR_OPEN_EXIT", "1")
 

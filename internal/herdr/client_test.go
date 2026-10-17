@@ -13,6 +13,8 @@ const (
 	testEntrypoint = "shell"
 	testCwd        = "/focused/cwd"
 	testPaneID     = "pane-1"
+	testWidth      = "100%"
+	testHeight     = "100%"
 )
 
 // Test list:
@@ -29,7 +31,8 @@ const (
 // - missing pane_id on a zero exit: returns an error
 //
 // PluginPopupOpen
-// - success: requests the full-screen native popup and accepts its id-less response
+// - success: requests the native popup at the given dimensions and accepts its id-less response
+// - custom dimensions: passes width and height through to Herdr's --width and --height
 // - malformed response: returns an error
 //
 // PaneExists
@@ -154,10 +157,25 @@ func TestPluginPopupOpen_Success(t *testing.T) {
 	logPath := newFakeHerdr(t)
 
 	c := NewClient()
-	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd); err != nil {
+	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd, testWidth, testHeight); err != nil {
 		t.Fatalf("PluginPopupOpen() error = %v", err)
 	}
 	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
+	if got := readLog(t, logPath); got != want {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+}
+
+func TestPluginPopupOpen_AppliesDimensions(t *testing.T) {
+	logPath := newFakeHerdr(t)
+	t.Setenv("FAKE_HERDR_EXPECT_WIDTH", "80%")
+	t.Setenv("FAKE_HERDR_EXPECT_HEIGHT", "20")
+
+	c := NewClient()
+	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd, "80%", "20"); err != nil {
+		t.Fatalf("PluginPopupOpen() error = %v", err)
+	}
+	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 80% --height 20 --cwd /focused/cwd --focus\n"
 	if got := readLog(t, logPath); got != want {
 		t.Errorf("argv = %q, want %q", got, want)
 	}
@@ -168,7 +186,7 @@ func TestPluginPopupOpen_MalformedJSON(t *testing.T) {
 	t.Setenv("FAKE_HERDR_OPEN_MALFORMED", "1")
 
 	c := NewClient()
-	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd); err == nil {
+	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd, testWidth, testHeight); err == nil {
 		t.Fatal("PluginPopupOpen() error = nil, want malformed-response error")
 	}
 }
