@@ -7,7 +7,7 @@ Thanks for improving herdr-toggle-popup. Contributions are accepted under the Ap
 | Tool | Requirement |
 | --- | --- |
 | Go | The version named in [go.mod](./go.mod) |
-| tmux | Available on PATH |
+| tmux | 2.9 or newer on PATH (the [compatibility minimum](./docs/design/tmux-compatibility.md)) |
 | Herdr | 0.9.3 or newer for manual checks |
 | git | Any recent version |
 | make | Optional, for the convenience targets |
@@ -78,6 +78,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
+| [docs/design/tmux-compatibility.md](./docs/design/tmux-compatibility.md) | Minimum tmux version, required capabilities, and compatibility CI targets |
 
 Add or update tests in the relevant internal package.
 

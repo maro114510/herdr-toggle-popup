@@ -6,7 +6,7 @@ A [Herdr](https://herdr.dev) plugin that toggles a full-screen popup shell with 
 
 ## Install
 
-This plugin requires Herdr 0.9.3 or newer and `tmux`.
+This plugin requires Herdr 0.9.3 or newer and `tmux` 2.9 or newer.
 
 ```bash
 herdr plugin install maro114510/herdr-toggle-popup
