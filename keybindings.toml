@@ -1,5 +1,9 @@
 # Herdr does not auto-load plugin-shipped keybindings. Copy this block into
 # your own ~/.config/herdr/config.toml to bind alt+l to the toggle action.
+#
+# The popup closes on the key that reaches tmux as M-l.
+# Keep this key and the plugin close_key setting on the same physical key.
+# See "Close key" in README.md for other keys.
 
 [[keys.command]]
 key = "alt+l"

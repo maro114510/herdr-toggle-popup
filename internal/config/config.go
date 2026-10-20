@@ -1,6 +1,5 @@
-// Package config reads the plugin's opt-in settings from
-// $HERDR_PLUGIN_CONFIG_DIR/config.toml: popup scoping mode, native popup dimensions, and
-// per-entrypoint resize steps.
+// Package config reads the plugin's opt-in settings from $HERDR_PLUGIN_CONFIG_DIR/config.toml.
+// Settings cover popup scoping, the close key, native dimensions, and resize steps.
 package config
 
 import (
@@ -27,6 +26,9 @@ const (
 	// amount, and count (with any extra colons folded into count, matching bash's `read`).
 	stepFields = 3
 
+	// DefaultCloseKey closes the popup and matches the documented alt+l binding.
+	DefaultCloseKey = "M-l"
+
 	// defaultPopupDimension preserves the historical full-screen popup when width or height is
 	// unset. Native popup dimensions follow Herdr's own parser: an integer cell count from
 	// minPopupCells to maxPopupCells, or an integer percentage from minPopupPercent to
@@ -44,6 +46,10 @@ const (
 	cellBitSize    = 16
 )
 
+// closeKeyPattern matches safe tmux key names such as M-l, C-S-a, and PageUp.
+// The restricted set lets a key be interpolated into the shell command and rejects metacharacters.
+var closeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
+
 // Config is the subset of config.toml the plugin reads. A missing env var, directory, or file
 // degrades silently to the same defaults toggle.sh uses, since that is the normal opt-out. A file
 // that exists but cannot be read or decoded also degrades to the defaults, but records a warning
@@ -52,6 +58,9 @@ const (
 type Config struct {
 	Scope     string
 	PopupSize map[string]string
+
+	// CloseKey is the tmux key that closes the popup and defaults to DefaultCloseKey.
+	CloseKey string
 
 	// Width and Height are the native popup outer dimensions to pass to Herdr's --width and
 	// --height, each defaulting to 100%. They are distinct from PopupSize, the legacy
@@ -64,12 +73,12 @@ type Config struct {
 	Warnings []string
 }
 
-// Load reads scope, width, height, and popup_size.<entrypoint> from
-// $HERDR_PLUGIN_CONFIG_DIR/config.toml.
+// Load reads every setting from $HERDR_PLUGIN_CONFIG_DIR/config.toml.
 func Load() Config {
 	def := Config{
 		Scope:     defaultScope,
 		PopupSize: nil,
+		CloseKey:  DefaultCloseKey,
 		Width:     defaultPopupDimension,
 		Height:    defaultPopupDimension,
 		Warnings:  nil,
@@ -83,6 +92,7 @@ func Load() Config {
 	var parsed struct {
 		Scope     string            `toml:"scope"`
 		PopupSize map[string]string `toml:"popup_size"`
+		CloseKey  string            `toml:"close_key"`
 		Width     any               `toml:"width"`
 		Height    any               `toml:"height"`
 	}
@@ -104,16 +114,18 @@ func Load() Config {
 	if scope == "" {
 		scope = defaultScope
 	}
+	closeKey, closeKeyWarning := resolveCloseKey(parsed.CloseKey)
 	width, widthWarning := resolveDimension("width", parsed.Width)
 	height, heightWarning := resolveDimension("height", parsed.Height)
 	cfg := Config{
 		Scope:     scope,
 		PopupSize: parsed.PopupSize,
+		CloseKey:  closeKey,
 		Width:     width,
 		Height:    height,
 		Warnings:  nil,
 	}
-	for _, warning := range []string{widthWarning, heightWarning} {
+	for _, warning := range []string{widthWarning, heightWarning, closeKeyWarning} {
 		if warning != "" {
 			cfg.Warnings = append(cfg.Warnings, warning)
 		}
@@ -186,6 +198,28 @@ func validateDimension(value string) bool {
 func dimensionHint() string {
 	return fmt.Sprintf("expected a cell count from %d to %d or a percentage from %d%% to %d%%",
 		minPopupCells, maxPopupCells, minPopupPercent, maxPopupPercent)
+}
+
+// resolveCloseKey returns the key to bind and an optional warning.
+// An absent value keeps the default silently and an unusable value falls back with a warning.
+func resolveCloseKey(key string) (resolved, warning string) {
+	if key == "" {
+		return DefaultCloseKey, ""
+	}
+	if isValidCloseKey(key) {
+		return key, ""
+	}
+	return DefaultCloseKey, fmt.Sprintf("invalid close_key %q: %s; using %s", key, closeKeyHint(), DefaultCloseKey)
+}
+
+// isValidCloseKey reports whether a key is safe to interpolate into the shell command.
+// A valid key may still be unknown to tmux, which reports the failure when it cannot bind.
+func isValidCloseKey(key string) bool {
+	return closeKeyPattern.MatchString(key)
+}
+
+func closeKeyHint() string {
+	return "expected a tmux key name such as " + DefaultCloseKey
 }
 
 // IsValidScope reports whether scope is a recognized value: "workspace", "directory", or "tab".

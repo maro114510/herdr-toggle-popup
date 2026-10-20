@@ -32,28 +32,30 @@ const (
 	sessionHashBytes   = 16
 )
 
-// tmuxAttachScript picks the popup's tmux target:
-//   - dedicated session: attach and bind M-l to detach
-//   - otherwise: create on the dedicated server, then attach
-//
-// Both paths force set-clipboard=external on the dedicated server. tmux then writes its own copies,
-// such as a mouse-drag copy-mode selection, to the outer terminal, while an OSC52 sequence emitted
-// by a pane can no longer create or overwrite a tmux buffer as it can with set-clipboard=on. The
-// option is applied on every connection because tmux keeps a server option across reattaches, so an
-// existing server can still carry a stale value.
-//
-// It only ever looks for the namespaced session name on the dedicated server. Sessions named
-// with a legacy identity (no namespace) are never attached to or removed, because identity now
-// always includes the Herdr namespace hash.
+// tmuxAttachScript creates or reuses the popup session on the dedicated server, then attaches.
+// It sets set-clipboard=external on every connection so mouse copies reach the outer terminal.
+// The external value also stops a pane OSC52 sequence from filling a tmux buffer.
+// The close key is bound in the root table so tmux keeps its default mouse and prefix bindings.
+// Root is server-wide, but the command runs in the context of the client that pressed the key.
+// The binding reads the session's @herdr-close-key option and detaches only that session's client.
+// A key owned by another popup is forwarded to the pane instead of being swallowed.
+// A name tmux rejects falls back to the default so the popup can always be closed.
+// The key and binding are reapplied on every connection, so a change applies on the next open.
+// Legacy sessions without the namespace are never attached to or removed.
 const tmuxAttachScript = `if "$4" -L herdr-toggle-popup -f /dev/null has-session -t "$1" 2>/dev/null; then
   "$4" -L herdr-toggle-popup -f /dev/null set-option -s set-clipboard external
-  "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
 else
   "$4" -L herdr-toggle-popup -f /dev/null new-session -d -s "$1" -c "$2" "$3"
   "$4" -L herdr-toggle-popup -f /dev/null set-option -s set-clipboard external
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" status off
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" mouse on
-  "$4" -L herdr-toggle-popup -f /dev/null bind-key -n M-l detach-client
+fi
+key="$5"
+"$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-close-key "$key"
+if ! "$4" -L herdr-toggle-popup -f /dev/null bind-key -n "$key" if-shell -F "#{==:#{@herdr-close-key},$key}" "detach-client" "send-keys $key"; then
+  key=M-l
+  "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-close-key "$key"
+  "$4" -L herdr-toggle-popup -f /dev/null bind-key -n "$key" if-shell -F "#{==:#{@herdr-close-key},$key}" "detach-client" "send-keys $key"
 fi
 exec "$4" -L herdr-toggle-popup -f /dev/null attach-session -t "$1"`
 
@@ -117,7 +119,7 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 		return 1
 	}
 
-	argv := []string{shellBin, "-c", tmuxAttachScript, "popup-shell", sessionName(sessionKey), cwd, shellPath, tmuxPath}
+	argv := []string{shellBin, "-c", tmuxAttachScript, "popup-shell", sessionName(sessionKey), cwd, shellPath, tmuxPath, cfg.CloseKey}
 	if err := execProcess(shPath, argv, os.Environ()); err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1

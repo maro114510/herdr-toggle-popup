@@ -24,7 +24,7 @@ The versions exercised by compatibility CI are fixed in [Compatibility CI](#comp
 | `window-size` window option with the `smallest` value | Multiple clients can attach to one saved shell, and the window must take the smallest client's size (#147) | tmux 2.9 |
 | `mouse` as a session option | `set-option -t <session> mouse on` turns on selection and wheel scrolling (#113) | 2.6 or earlier; not the binding constraint |
 | Default root-table mouse bindings (`MouseDrag1Pane`, `WheelUpPane`) | The dedicated server keeps tmux's default bindings instead of a custom key table (#113) | 2.6 or earlier; not the binding constraint |
-| Session lifecycle and the close key (`-L`, `-f`, `has-session`, `new-session -d -c`, `attach-session -t`, `bind-key -n`, `detach-client`) | The popup creates or reuses a session on the dedicated server and detaches only its own client (#114, #121, #144) | 2.6 or earlier; not the binding constraint |
+| Session lifecycle and the close key (`-L`, `-f`, `has-session`, `new-session -d -c`, `attach-session -t`, `bind-key -n`, session-scoped `@` options, `if-shell -F`, `detach-client`, `send-keys`) | The popup creates or reuses a session on the dedicated server, binds the configured close key to its own session, and detaches only its own client (#114, #121, #144) | 2.6 or earlier; not the binding constraint |
 
 Two constraints decide the floor:
 

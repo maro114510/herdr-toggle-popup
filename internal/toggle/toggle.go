@@ -19,10 +19,10 @@ const (
 	workspaceIDEnvVar = "HERDR_WORKSPACE_ID"
 )
 
-// Run opens a native Herdr popup for entrypoint. While it is visible, Herdr routes Alt+L to the
-// attached tmux client; popupshell binds that key to detach only the current client, which closes
-// the popup while keeping its named tmux session alive. Once closed, Alt+L reaches this action
-// again and reopens the same scoped session.
+// Run opens a native Herdr popup for entrypoint.
+// While it is visible, Herdr routes the close key to the attached tmux client.
+// popupshell detaches only that client, which closes the popup and keeps its tmux session alive.
+// Once closed, the close key reopens the same scoped session.
 func Run(args []string, stdout, stderr io.Writer) int {
 	_ = stdout
 	if len(args) != 1 || args[0] == "" {
