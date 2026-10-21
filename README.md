@@ -57,11 +57,14 @@ command = "maro114510.toggle-popup.toggle-shell"
 description = "Toggle popup shell"
 ```
 
+The key bound here also closes the popup.
+Keep it consistent with `close_key`, described in [Close key](#close-key).
+
 ## Session behavior
 
 The plugin uses Herdr's native full-screen `popup` placement. Herdr creates the child PTY at the popup's inner size after accounting for its border, so the final prompt line remains in the visible terminal surface.
 
-The shell runs inside a named `tmux` session on a dedicated server, so tmux's default mouse bindings stay intact. While the popup is visible, `Alt+L` is handled by that session and detaches only its current client. Herdr closes the popup and the shell keeps running. Pressing `Alt+L` again opens a fresh native popup and resumes the same session. The tmux status line stays disabled, and mouse wheel and trackpad scrolling move the shell's output history.
+The shell runs inside a named `tmux` session on a dedicated server, so tmux's default mouse bindings stay intact. While the popup is visible, the close key is handled by that session and detaches only its current client. It is `Alt+L` by default. Herdr closes the popup and the shell keeps running. Pressing the close key again opens a fresh native popup and resumes the same session. The tmux status line stays disabled, and mouse wheel and trackpad scrolling move the shell's output history.
 
 ### Mouse selection and the clipboard
 
@@ -93,6 +96,21 @@ scope = "directory"
 ```
 
 Use `scope = "tab"` to scope it to a particular tab within a workspace. The popup process reads the invocation context so these scopes also work with native popup panes, which do not receive `HERDR_PANE_ID`.
+
+## Close key
+
+`close_key` in `$HERDR_PLUGIN_CONFIG_DIR/config.toml` sets the key that closes the popup.
+It defaults to `M-l` and must name the same key as your Herdr binding in tmux syntax.
+
+| Herdr config | Plugin config |
+| --- | --- |
+| `key = "alt+l"` | `close_key = "M-l"` |
+| `key = "alt+p"` | `close_key = "M-p"` |
+
+An invalid value or a name tmux does not know falls back to `M-l`.
+Do not use the tmux prefix `C-b`.
+Each saved session keeps the key it opened with, so two popups can close on `M-l` and `M-p` at once.
+A changed key applies the next time the popup opens.
 
 ## Popup size
 

@@ -426,6 +426,117 @@ func TestValidateDimension(t *testing.T) {
 	}
 }
 
+// TestLoad_CloseKeyAbsent_DefaultsToMl keeps the default without a warning when the key is absent.
+func TestLoad_CloseKeyAbsent_DefaultsToMl(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		content string
+	}{
+		{name: "scope only", content: `scope = "workspace"` + "\n"},
+		{name: "empty value", content: `close_key = ""` + "\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(configDirEnvVar, writeConfigFile(t, tt.content))
+
+			cfg := Load()
+
+			if cfg.CloseKey != DefaultCloseKey {
+				t.Errorf("CloseKey = %q, want %q", cfg.CloseKey, DefaultCloseKey)
+			}
+			if len(cfg.Warnings) != 0 {
+				t.Errorf("Warnings = %v, want none", cfg.Warnings)
+			}
+		})
+	}
+}
+
+func TestLoad_NoConfigDirEnv_DefaultsCloseKey(t *testing.T) {
+	t.Setenv(configDirEnvVar, "")
+
+	cfg := Load()
+
+	if cfg.CloseKey != DefaultCloseKey {
+		t.Errorf("CloseKey = %q, want %q", cfg.CloseKey, DefaultCloseKey)
+	}
+}
+
+func TestLoad_CloseKeyConfigured(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, `close_key = "M-p"`+"\n"))
+
+	cfg := Load()
+
+	if cfg.CloseKey != "M-p" {
+		t.Errorf("CloseKey = %q, want %q", cfg.CloseKey, "M-p")
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none for a valid close key", cfg.Warnings)
+	}
+}
+
+// TestLoad_UnsafeCloseKey_WarnsAndFallsBack rejects a value that would break out of the shell command.
+// The warning names the rejected value and the key falls back to the default.
+func TestLoad_UnsafeCloseKey_WarnsAndFallsBack(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, `close_key = "M-l; rm -rf ~"`+"\n"))
+
+	cfg := Load()
+
+	if cfg.CloseKey != DefaultCloseKey {
+		t.Errorf("CloseKey = %q, want fallback %q", cfg.CloseKey, DefaultCloseKey)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "invalid close_key") {
+		t.Fatalf("Warnings = %v, want one invalid close_key warning", cfg.Warnings)
+	}
+	if !strings.Contains(cfg.Warnings[0], "M-l; rm -rf ~") {
+		t.Errorf("warning = %q, want it to name the rejected value", cfg.Warnings[0])
+	}
+}
+
+func TestLoad_InvalidCloseKeyKeepsOtherSettings(t *testing.T) {
+	t.Setenv(configDirEnvVar, writeConfigFile(t, "close_key = \"$(id)\"\nscope = \"directory\"\n"))
+
+	cfg := Load()
+
+	if cfg.CloseKey != DefaultCloseKey {
+		t.Errorf("CloseKey = %q, want fallback %q", cfg.CloseKey, DefaultCloseKey)
+	}
+	if cfg.Scope != "directory" {
+		t.Errorf("Scope = %q, want the valid value to survive", cfg.Scope)
+	}
+	if len(cfg.Warnings) != 1 {
+		t.Errorf("Warnings = %v, want only the invalid close_key warning", cfg.Warnings)
+	}
+}
+
+func TestIsValidCloseKey(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		key  string
+		want bool
+	}{
+		{"M-l", true},
+		{"C-a", true},
+		{"C-S-a", true},
+		{"F2", true},
+		{"PageUp", true},
+		{"M-PageDown", true},
+		{"", false},
+		{"M l", false},
+		{"M-l; id", false},
+		{`M-l"x`, false},
+		{"$(id)", false},
+		{"`id`", false},
+		{"M-l && id", false},
+		{"-M-l", false},
+		{"M-", false},
+	}
+	for _, tc := range cases {
+		if got := isValidCloseKey(tc.key); got != tc.want {
+			t.Errorf("isValidCloseKey(%q) = %v, want %v", tc.key, got, tc.want)
+		}
+	}
+}
+
 func TestParseSizeSteps_Empty(t *testing.T) {
 	t.Parallel()
 
@@ -433,7 +544,6 @@ func TestParseSizeSteps_Empty(t *testing.T) {
 		t.Errorf("ParseSizeSteps(\"\") = %v, want nil", got)
 	}
 }
-
 func TestParseSizeSteps_SingleStep(t *testing.T) {
 	t.Parallel()
 

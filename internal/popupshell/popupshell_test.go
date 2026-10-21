@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maro114510/herdr-toggle-popup/internal/config"
 )
 
 // Test list:
@@ -22,12 +24,17 @@ import (
 // - tab scope: derives the tmux session from namespace:<hash>:tab:<workspace id>:<focused tab id>:<entrypoint>
 // - namespace: the same scope and entrypoint in different Herdr namespaces yield different sessions
 // - namespace: an unchanged namespace, scope, and entrypoint reuse the saved session name
-// - tmux hides its status line, enables mouse mode, and binds Alt+L to detach
+// - tmux hides its status line, enables mouse mode, and binds the close key to detach
+// - close_key defaults to M-l and an invalid value warns and falls back
 // - tmux forces set-clipboard=external in both the create and reattach paths
+// - real tmux server: the close key is guarded per session in the root table
+// - real tmux server: binding it leaves the default mouse and prefix bindings in place
+// - real tmux server: two sessions own different keys and never swallow the other key
+// - real tmux server: a changed key applies when the popup is reopened
+// - real tmux server: a name tmux rejects falls back to the default
 // - real tmux server: the dedicated server reports set-clipboard external for new and existing sessions
 // - real tmux server: a pane-originated OSC52 sequence never becomes a tmux buffer
 // - real tmux server: new session only on the dedicated server
-// - real tmux server: dedicated server keeps tmux default mouse bindings and prefix
 // - real tmux server: reopening reuses the dedicated session
 // - real tmux server: legacy sessions on both servers are not removed
 // - real tmux server: a same-name default-server session is not attached to
@@ -53,6 +60,8 @@ const (
 	tmuxSocketDirVar = "TMUX_TMPDIR"
 	tmuxClientEnvVar = "TMUX"
 	testSessionName  = "herdr-popup-test"
+	testCloseKey     = "M-l"
+	altCloseKey      = "M-p"
 
 	// Pane-OSC52 probe timings. The pane prints a sentinel after the sequence, so the poll only
 	// waits as long as the pane needs to run the probe command.
@@ -113,10 +122,10 @@ func successfulLookPath(t *testing.T) lookPathFunc {
 	}
 }
 
-func wantTmuxWrapperArgv(session string, shell string) []string {
+func wantTmuxWrapperArgv(session string, shell string, closeKey string) []string {
 	return []string{
 		shellBin, "-c", tmuxAttachScript,
-		"popup-shell", session, focusedCwd, shell, testTmuxBin,
+		"popup-shell", session, focusedCwd, shell, testTmuxBin, closeKey,
 	}
 }
 
@@ -169,11 +178,11 @@ func runTmux(t *testing.T, env []string, tmuxPath string, args ...string) string
 
 // runAttachScript runs the production attach script against the isolated servers.
 // attach-session needs a tty, so the exit code is ignored and only side effects are asserted.
-func runAttachScript(t *testing.T, env []string, tmuxPath, session string) {
+func runAttachScript(t *testing.T, env []string, tmuxPath, session, closeKey string) {
 	t.Helper()
 
 	//nolint:gosec // The test drives the production attach script with fixed arguments.
-	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", session, t.TempDir(), "/bin/sh", tmuxPath)
+	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", session, t.TempDir(), "/bin/sh", tmuxPath, closeKey)
 	cmd.Env = env
 	_ = cmd.Run()
 }
@@ -228,7 +237,7 @@ func TestTmuxAttachScriptCreatesNewSessionOnlyOnDedicatedServer(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath, testSessionName)
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 
 	if !tmuxSessionExists(t, env, tmuxPath, testSessionName, "-L", popupSocketName, "-f", "/dev/null") {
 		t.Errorf("session %q was not created on the dedicated server", testSessionName)
@@ -258,7 +267,7 @@ func TestTmuxAttachScriptLeavesLegacySessionsUntouched(t *testing.T) {
 	runTmux(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null", "new-session", "-d", "-s", legacySession, "-c", t.TempDir(), "/bin/sh")
 	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", legacySession, "-c", t.TempDir(), "/bin/sh")
 
-	runAttachScript(t, env, tmuxPath, namespacedSession)
+	runAttachScript(t, env, tmuxPath, namespacedSession, testCloseKey)
 
 	if !tmuxSessionExists(t, env, tmuxPath, legacySession, "-L", popupSocketName, "-f", "/dev/null") {
 		t.Errorf("legacy session %q on the dedicated server was removed", legacySession)
@@ -287,7 +296,7 @@ func TestTmuxAttachScriptIgnoresDefaultServerSessionWithTargetName(t *testing.T)
 	target := sessionName(namespacedKey("workspace:ws1:shell"))
 	runTmux(t, env, tmuxPath, "-f", "/dev/null", "new-session", "-d", "-s", target, "-c", t.TempDir(), "/bin/sh")
 
-	runAttachScript(t, env, tmuxPath, target)
+	runAttachScript(t, env, tmuxPath, target, testCloseKey)
 
 	if !tmuxSessionExists(t, env, tmuxPath, target, "-L", popupSocketName, "-f", "/dev/null") {
 		t.Errorf("session %q was not created on the dedicated server", target)
@@ -307,7 +316,7 @@ func TestTmuxAttachScriptKeepsDefaultBindingsOnDedicatedServer(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath, testSessionName)
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 
 	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "status")); got != "status off" {
 		t.Errorf("session status = %q, want %q", got, "status off")
@@ -322,9 +331,161 @@ func TestTmuxAttachScriptKeepsDefaultBindingsOnDedicatedServer(t *testing.T) {
 			t.Errorf("dedicated root key table is missing %q:\n%s", want, keys)
 		}
 	}
+	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "@herdr-close-key")); got != "@herdr-close-key "+testCloseKey {
+		t.Errorf("session close key = %q, want %q", got, "@herdr-close-key "+testCloseKey)
+	}
+	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-g", "prefix")); got != "prefix C-b" {
 		t.Errorf("dedicated prefix = %q, want %q", got, "prefix C-b")
 	}
+}
+
+// assertCloseKeyBinding checks the root binding for key.
+// The guard must run detach-client on a hit and send-keys on a miss, in that order.
+func assertCloseKeyBinding(t *testing.T, env []string, tmuxPath, key string) {
+	t.Helper()
+
+	guard := "#{==:#{@herdr-close-key}," + key + "}"
+	rootKeys := dedicatedTmux(t, env, tmuxPath, "list-keys", "-T", "root")
+	binding := ""
+	for line := range strings.SplitSeq(rootKeys, "\n") {
+		if strings.Contains(line, guard) {
+			binding = line
+			break
+		}
+	}
+	if binding == "" {
+		t.Fatalf("root key table has no binding guarded on %q:\n%s", guard, rootKeys)
+	}
+	detach := strings.Index(binding, "detach-client")
+	forward := strings.Index(binding, "send-keys "+key)
+	if detach < 0 || forward < 0 || detach > forward {
+		t.Errorf("root binding for %q must detach on a guard hit and forward otherwise, got:\n%s", key, binding)
+	}
+}
+
+// closeKeyGuardHolds evaluates the binding guard in session context.
+// The key owns the session only when its @herdr-close-key option equals key.
+func closeKeyGuardHolds(t *testing.T, env []string, tmuxPath, session, key string) bool {
+	t.Helper()
+
+	format := fmt.Sprintf("#{==:#{@herdr-close-key},%s}", key)
+	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", session, format)) == "1"
+}
+
+func sessionCloseKey(t *testing.T, env []string, tmuxPath, session string) string {
+	t.Helper()
+
+	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", session, "@herdr-close-key"))
+}
+
+// TestTmuxAttachScriptScopesCloseKeyToItsSession keeps two sessions on independent close keys.
+// Each session owns only its own key and root mouse bindings stay in place.
+func TestTmuxAttachScriptScopesCloseKeyToItsSession(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	sessionA := sessionName(namespacedKey("workspace:wsA:shell"))
+	sessionB := sessionName(namespacedKey("workspace:wsB:shell"))
+
+	runAttachScript(t, env, tmuxPath, sessionA, testCloseKey)
+	runAttachScript(t, env, tmuxPath, sessionB, altCloseKey)
+
+	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != "@herdr-close-key "+testCloseKey {
+		t.Errorf("session A close key = %q, want %q", got, "@herdr-close-key "+testCloseKey)
+	}
+	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != "@herdr-close-key "+altCloseKey {
+		t.Errorf("session B close key = %q, want %q", got, "@herdr-close-key "+altCloseKey)
+	}
+	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
+	assertCloseKeyBinding(t, env, tmuxPath, altCloseKey)
+
+	for _, tt := range []struct {
+		name    string
+		session string
+		key     string
+		want    bool
+	}{
+		{"A owns its key", sessionA, testCloseKey, true},
+		{"A does not own B's key", sessionA, altCloseKey, false},
+		{"B owns its key", sessionB, altCloseKey, true},
+		{"B does not own A's key", sessionB, testCloseKey, false},
+	} {
+		if got := closeKeyGuardHolds(t, env, tmuxPath, tt.session, tt.key); got != tt.want {
+			t.Errorf("%s: guard holds = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+
+	keys := dedicatedTmux(t, env, tmuxPath, "list-keys", "-T", "root")
+	for _, want := range []string{"WheelUpPane", "MouseDrag1Pane"} {
+		if !strings.Contains(keys, want) {
+			t.Errorf("dedicated root key table lost %q:\n%s", want, keys)
+		}
+	}
+}
+
+// TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen rebinds a session on a new key.
+// The other session keeps its key and both bindings stay active.
+func TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	sessionA := sessionName(namespacedKey("workspace:wsA:shell"))
+	sessionB := sessionName(namespacedKey("workspace:wsB:shell"))
+
+	runAttachScript(t, env, tmuxPath, sessionA, testCloseKey)
+	runAttachScript(t, env, tmuxPath, sessionB, testCloseKey)
+
+	runAttachScript(t, env, tmuxPath, sessionA, altCloseKey)
+
+	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != "@herdr-close-key "+altCloseKey {
+		t.Errorf("session A close key after reopen = %q, want %q", got, "@herdr-close-key "+altCloseKey)
+	}
+	assertCloseKeyBinding(t, env, tmuxPath, altCloseKey)
+	if closeKeyGuardHolds(t, env, tmuxPath, sessionA, testCloseKey) {
+		t.Errorf("session A still owns the old key %q after reopening on %q", testCloseKey, altCloseKey)
+	}
+	if !closeKeyGuardHolds(t, env, tmuxPath, sessionA, altCloseKey) {
+		t.Errorf("session A does not own its new key %q", altCloseKey)
+	}
+	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != "@herdr-close-key "+testCloseKey {
+		t.Errorf("session B close key changed to %q, want it unchanged at %q", got, "@herdr-close-key "+testCloseKey)
+	}
+	if !closeKeyGuardHolds(t, env, tmuxPath, sessionB, testCloseKey) {
+		t.Errorf("session B no longer owns %q after session A changed its key", testCloseKey)
+	}
+}
+
+// TestTmuxAttachScriptFallsBackWhenTmuxRejectsCloseKey binds the default when tmux rejects a name.
+// Alt-l passes the config character check but tmux does not know it.
+func TestTmuxAttachScriptFallsBackWhenTmuxRejectsCloseKey(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, "Alt-l")
+
+	if got := sessionCloseKey(t, env, tmuxPath, testSessionName); got != "@herdr-close-key "+testCloseKey {
+		t.Errorf("session close key = %q, want the fallback %q", got, "@herdr-close-key "+testCloseKey)
+	}
+	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 }
 
 func TestTmuxAttachScriptReusesExistingDedicatedSession(t *testing.T) {
@@ -337,10 +498,10 @@ func TestTmuxAttachScriptReusesExistingDedicatedSession(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath, testSessionName)
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 	created := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{session_created}"))
 
-	runAttachScript(t, env, tmuxPath, testSessionName)
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 	again := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, "#{session_created}"))
 
 	if created == "" || created != again {
@@ -361,11 +522,11 @@ func TestTmuxAttachScriptSetsExternalClipboardForNewAndExistingSessions(t *testi
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath, testSessionName)
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 	assertDedicatedSetClipboardExternal(t, env, tmuxPath, "new session")
 
 	dedicatedTmux(t, env, tmuxPath, "set-option", "-s", "set-clipboard", "on")
-	runAttachScript(t, env, tmuxPath, testSessionName)
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 	assertDedicatedSetClipboardExternal(t, env, tmuxPath, "existing session")
 }
 
@@ -392,7 +553,7 @@ func TestTmuxAttachScriptKeepsPaneOSC52OutOfTmuxBuffers(t *testing.T) {
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
-	runAttachScript(t, env, tmuxPath, testSessionName)
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 
 	runPaneOSC52Probe(t, env, tmuxPath, "pane-external")
 	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "list-buffers")); got != "" {
@@ -443,7 +604,7 @@ func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
-	wantArgv := wantTmuxWrapperArgv(sessionName(namespacedKey("workspace:ws1:shell")), testShellPath)
+	wantArgv := wantTmuxWrapperArgv(sessionName(namespacedKey("workspace:ws1:shell")), testShellPath, config.DefaultCloseKey)
 	if call.argv0 != testShellBin {
 		t.Errorf("argv0 = %q, want %q", call.argv0, testShellBin)
 	}
@@ -486,6 +647,50 @@ func TestRunExecsTmuxSessionForDirectoryScope(t *testing.T) {
 	wantSession := sessionName(namespacedKey("directory:/focused/cwd:shell"))
 	if got := call.argv[4]; got != wantSession {
 		t.Errorf("session = %q, want %q", got, wantSession)
+	}
+}
+
+// TestRunUsesConfiguredCloseKey passes close_key to the script and prints no warning.
+//
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunUsesConfiguredCloseKey(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "close_key = \""+altCloseKey+"\"\n")
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if got := call.argv[8]; got != altCloseKey {
+		t.Errorf("close key argv = %q, want %q", got, altCloseKey)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty for a valid close key", stderr.String())
+	}
+}
+
+// TestRunInvalidCloseKeyWarnsAndFallsBack rejects an unsafe key and reports the fallback.
+//
+//nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
+func TestRunInvalidCloseKeyWarnsAndFallsBack(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "close_key = \"M-l; touch /tmp/pwned\"\n")
+
+	var stderr bytes.Buffer
+	var call execCall
+	code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call))
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "invalid close_key") {
+		t.Errorf("stderr = %q, want an invalid close_key warning", stderr.String())
+	}
+	if got := call.argv[8]; got != config.DefaultCloseKey {
+		t.Errorf("close key argv = %q, want the default %q", got, config.DefaultCloseKey)
 	}
 }
 
@@ -726,13 +931,45 @@ func TestRunConfiguresDedicatedTmuxServerBeforeAttaching(t *testing.T) {
 		"has-session -t \"$1\"",
 		"new-session -d -s \"$1\" -c \"$2\" \"$3\"",
 		"set-option -t \"$1\" status off",
-		"bind-key -n M-l detach-client",
 		"set-option -t \"$1\" mouse on",
+		"key=\"$5\"",
+		"set-option -t \"$1\" @herdr-close-key \"$key\"",
+		"bind-key -n \"$key\" if-shell -F \"#{==:#{@herdr-close-key},$key}\" \"detach-client\" \"send-keys $key\"",
+		"key=M-l",
 		"set-option -s set-clipboard external",
 		"attach-session -t \"$1\"",
 	} {
 		if !strings.Contains(tmuxAttachScript, want) {
 			t.Fatalf("tmux attach script = %q, want it to contain %q", tmuxAttachScript, want)
+		}
+	}
+}
+
+// TestRunAppliesCloseKeyOnEveryConnection runs the close-key setup after the branch split.
+// Moving it into either branch would leave the reattach path unconfigured.
+func TestRunAppliesCloseKeyOnEveryConnection(t *testing.T) {
+	t.Parallel()
+
+	branchEnd := strings.Index(tmuxAttachScript, "\nfi\n")
+	setup := strings.Index(tmuxAttachScript, "key=\"$5\"")
+	if branchEnd < 0 || setup < 0 || setup < branchEnd {
+		t.Fatalf("close-key setup must run after the create/reattach split on every connection:\n%s", tmuxAttachScript)
+	}
+	if got := strings.Count(tmuxAttachScript, "key=\"$5\""); got != 1 {
+		t.Fatalf("close-key setup runs %d times, want once on the shared path:\n%s", got, tmuxAttachScript)
+	}
+}
+
+// TestRunFallsBackToDefaultCloseKeyWhenTmuxRejectsIt keeps a rejected name from stranding the popup.
+func TestRunFallsBackToDefaultCloseKeyWhenTmuxRejectsIt(t *testing.T) {
+	t.Parallel()
+
+	for _, want := range []string{
+		"key=M-l",
+		"bind-key -n \"$key\" if-shell",
+	} {
+		if !strings.Contains(tmuxAttachScript, want) {
+			t.Fatalf("tmux attach script = %q, want it to contain the fallback %q", tmuxAttachScript, want)
 		}
 	}
 }
