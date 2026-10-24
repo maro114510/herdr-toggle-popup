@@ -13,7 +13,6 @@ const (
 	// toggleBinary is the manifest-declared path to the built Go binary.
 	toggleBinary    = "./bin/toggle-popup"
 	shellEntrypoint = "shell"
-	paneBinaryShell = `exec "$HERDR_PLUGIN_ROOT/bin/toggle-popup" popup-shell shell`
 )
 
 // manifest mirrors the subset of herdr-plugin.toml this test asserts on. Field order matches the
@@ -207,10 +206,10 @@ func TestManifestShellPane(t *testing.T) {
 	if p.Width != "100%" || p.Height != "100%" {
 		t.Errorf("size = %q x %q, want 100%% x 100%%", p.Width, p.Height)
 	}
-	// Herdr starts panes in the target cwd, not the plugin root, so the pane command must resolve
-	// the binary through HERDR_PLUGIN_ROOT. Keep this assertion strict so a direct ./bin/toggle-popup
-	// regression fails manifest tests.
-	wantCommand := []string{"sh", "-c", paneBinaryShell}
+	// Herdr 0.9.3 and newer resolve plugin-relative pane commands against the plugin root, so the
+	// pane launches the binary directly without a shell wrapper. Keep this assertion strict so a
+	// regression back to sh -c fails manifest tests.
+	wantCommand := []string{toggleBinary, "popup-shell", shellEntrypoint}
 	if !reflect.DeepEqual(p.Command, wantCommand) {
 		t.Errorf("Command = %v, want %v", p.Command, wantCommand)
 	}

@@ -19,4 +19,4 @@ title = "Popup Shell"
 placement = "popup"
 width = "100%"
 height = "100%"
-command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/toggle-popup\" popup-shell shell"]
+command = ["./bin/toggle-popup", "popup-shell", "shell"]
