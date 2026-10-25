@@ -43,6 +43,9 @@ import (
 // - missing HERDR_SOCKET_PATH: reports a clear error before resolving or execing tmux
 // - missing focused cwd: reports a clear error before execing tmux
 // - missing tab id (tab scope): reports a clear error before execing tmux
+//
+// HERDR_TEST_REQUIRE_TMUX=1 turns the real-server skip into a failure, so the compatibility matrix
+// cannot pass without running them.
 
 const (
 	configDirEnvVar = "HERDR_PLUGIN_CONFIG_DIR"
@@ -56,12 +59,14 @@ const (
 	testTmuxBin     = "/resolved/tmux"
 
 	// Real-tmux-server test settings. popupSocketName mirrors the socket in tmuxAttachScript.
-	popupSocketName  = "herdr-toggle-popup"
-	tmuxSocketDirVar = "TMUX_TMPDIR"
-	tmuxClientEnvVar = "TMUX"
-	testSessionName  = "herdr-popup-test"
-	testCloseKey     = "M-l"
-	altCloseKey      = "M-p"
+	// requireTmuxEnvVar=1 turns the real-server skip into a failure, so CI cannot pass without them.
+	popupSocketName   = "herdr-toggle-popup"
+	tmuxSocketDirVar  = "TMUX_TMPDIR"
+	tmuxClientEnvVar  = "TMUX"
+	requireTmuxEnvVar = "HERDR_TEST_REQUIRE_TMUX"
+	testSessionName   = "herdr-popup-test"
+	testCloseKey      = "M-l"
+	altCloseKey       = "M-p"
 
 	// Pane-OSC52 probe timings. The pane prints a sentinel after the sequence, so the poll only
 	// waits as long as the pane needs to run the probe command.
@@ -136,6 +141,21 @@ func captureExec(call *execCall) execFunc {
 		call.envv = slices.Clone(envv)
 		return nil
 	}
+}
+
+// realTmux resolves the tmux binary the real-server tests drive, skipping when it is absent unless
+// requireTmuxEnvVar=1 makes that a failure.
+func realTmux(t *testing.T) string {
+	t.Helper()
+
+	tmuxPath, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		if os.Getenv(requireTmuxEnvVar) == "1" {
+			t.Fatalf("%s=1, but tmux was not found on PATH: %v", requireTmuxEnvVar, err)
+		}
+		t.Skip("tmux not found, skipping real tmux server test")
+	}
+	return tmuxPath
 }
 
 // isolatedTmuxEnv points tmux at a private socket directory and drops TMUX.
@@ -230,10 +250,7 @@ func isolatedServers(t *testing.T, env []string, tmuxPath string) {
 func TestTmuxAttachScriptCreatesNewSessionOnlyOnDedicatedServer(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -254,10 +271,7 @@ func TestTmuxAttachScriptCreatesNewSessionOnlyOnDedicatedServer(t *testing.T) {
 func TestTmuxAttachScriptLeavesLegacySessionsUntouched(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -286,10 +300,7 @@ func TestTmuxAttachScriptLeavesLegacySessionsUntouched(t *testing.T) {
 func TestTmuxAttachScriptIgnoresDefaultServerSessionWithTargetName(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -309,10 +320,7 @@ func TestTmuxAttachScriptIgnoresDefaultServerSessionWithTargetName(t *testing.T)
 func TestTmuxAttachScriptKeepsDefaultBindingsOnDedicatedServer(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -331,8 +339,8 @@ func TestTmuxAttachScriptKeepsDefaultBindingsOnDedicatedServer(t *testing.T) {
 			t.Errorf("dedicated root key table is missing %q:\n%s", want, keys)
 		}
 	}
-	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "@herdr-close-key")); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session close key = %q, want %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, testSessionName); got != testCloseKey {
+		t.Errorf("session close key = %q, want %q", got, testCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-g", "prefix")); got != "prefix C-b" {
@@ -373,10 +381,12 @@ func closeKeyGuardHolds(t *testing.T, env []string, tmuxPath, session, key strin
 	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", session, format)) == "1"
 }
 
+// sessionCloseKey reads the stored close key. tmux 2.9 quotes a user option value in its default
+// output, so -v is used, which prints it bare on every supported version.
 func sessionCloseKey(t *testing.T, env []string, tmuxPath, session string) string {
 	t.Helper()
 
-	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", session, "@herdr-close-key"))
+	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-v", "-t", session, "@herdr-close-key"))
 }
 
 // TestTmuxAttachScriptScopesCloseKeyToItsSession keeps two sessions on independent close keys.
@@ -384,10 +394,7 @@ func sessionCloseKey(t *testing.T, env []string, tmuxPath, session string) strin
 func TestTmuxAttachScriptScopesCloseKeyToItsSession(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -397,11 +404,11 @@ func TestTmuxAttachScriptScopesCloseKeyToItsSession(t *testing.T) {
 	runAttachScript(t, env, tmuxPath, sessionA, testCloseKey)
 	runAttachScript(t, env, tmuxPath, sessionB, altCloseKey)
 
-	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session A close key = %q, want %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != testCloseKey {
+		t.Errorf("session A close key = %q, want %q", got, testCloseKey)
 	}
-	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != "@herdr-close-key "+altCloseKey {
-		t.Errorf("session B close key = %q, want %q", got, "@herdr-close-key "+altCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != altCloseKey {
+		t.Errorf("session B close key = %q, want %q", got, altCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 	assertCloseKeyBinding(t, env, tmuxPath, altCloseKey)
@@ -435,10 +442,7 @@ func TestTmuxAttachScriptScopesCloseKeyToItsSession(t *testing.T) {
 func TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -450,8 +454,8 @@ func TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen(t *testing.T) {
 
 	runAttachScript(t, env, tmuxPath, sessionA, altCloseKey)
 
-	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != "@herdr-close-key "+altCloseKey {
-		t.Errorf("session A close key after reopen = %q, want %q", got, "@herdr-close-key "+altCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != altCloseKey {
+		t.Errorf("session A close key after reopen = %q, want %q", got, altCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, altCloseKey)
 	if closeKeyGuardHolds(t, env, tmuxPath, sessionA, testCloseKey) {
@@ -460,8 +464,8 @@ func TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen(t *testing.T) {
 	if !closeKeyGuardHolds(t, env, tmuxPath, sessionA, altCloseKey) {
 		t.Errorf("session A does not own its new key %q", altCloseKey)
 	}
-	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session B close key changed to %q, want it unchanged at %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != testCloseKey {
+		t.Errorf("session B close key changed to %q, want it unchanged at %q", got, testCloseKey)
 	}
 	if !closeKeyGuardHolds(t, env, tmuxPath, sessionB, testCloseKey) {
 		t.Errorf("session B no longer owns %q after session A changed its key", testCloseKey)
@@ -473,17 +477,14 @@ func TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen(t *testing.T) {
 func TestTmuxAttachScriptFallsBackWhenTmuxRejectsCloseKey(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
 	runAttachScript(t, env, tmuxPath, testSessionName, "Alt-l")
 
-	if got := sessionCloseKey(t, env, tmuxPath, testSessionName); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session close key = %q, want the fallback %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, testSessionName); got != testCloseKey {
+		t.Errorf("session close key = %q, want the fallback %q", got, testCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 }
@@ -491,10 +492,7 @@ func TestTmuxAttachScriptFallsBackWhenTmuxRejectsCloseKey(t *testing.T) {
 func TestTmuxAttachScriptReusesExistingDedicatedSession(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -515,10 +513,7 @@ func TestTmuxAttachScriptReusesExistingDedicatedSession(t *testing.T) {
 func TestTmuxAttachScriptSetsExternalClipboardForNewAndExistingSessions(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 
@@ -546,10 +541,7 @@ func assertDedicatedSetClipboardExternal(t *testing.T, env []string, tmuxPath, p
 func TestTmuxAttachScriptKeepsPaneOSC52OutOfTmuxBuffers(t *testing.T) {
 	t.Parallel()
 
-	tmuxPath, err := exec.LookPath(tmuxBin)
-	if err != nil {
-		t.Skip("tmux not found, skipping real tmux server test")
-	}
+	tmuxPath := realTmux(t)
 	env := isolatedTmuxEnv(t)
 	isolatedServers(t, env, tmuxPath)
 

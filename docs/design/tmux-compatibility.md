@@ -33,7 +33,7 @@ Two constraints decide the floor:
 
 ## Capability results by candidate version
 
-Each row was produced from the release tarball built from source on macOS arm64 on 2026-10-17, by running the repository's real-server suite (`go test ./internal/popupshell/ -run Tmux`) against that binary, plus a direct probe of the required options and of the pane-originated OSC52 behaviour.
+Each row came from the release tarball built from source on macOS arm64 on 2026-10-17, running `go test -run TestTmuxAttachScript ./internal/popupshell/` against that binary plus a direct probe of the required options and of the pane-originated OSC52 behaviour. The close-key assertions were added later.
 
 | tmux | Real-server suite | `set-clipboard external` | `window-size smallest` | Default mouse bindings | Pane OSC52 kept out of buffers |
 | --- | --- | --- | --- | --- | --- |
@@ -68,14 +68,21 @@ The pane-originated OSC52 check emits `\033]52;c;<base64>\007` from a pane with 
 
 ## Compatibility CI
 
-The compatibility matrix must exercise two pinned versions.
+The `tmux-compat` matrix in [.github/workflows/ci.yml](../../.github/workflows/ci.yml) runs the real-server suite on both supported targets.
 
-| Job | Version | Covers |
+| Matrix entry | Version | Covers |
 | --- | --- | --- |
 | Minimum | tmux 2.9 | The oldest supported behaviour |
 | Current stable | tmux 3.8 | The behaviour a new user gets |
 
-How each job obtains tmux, and how it fails when the version is missing or wrong, is owned by #146. The contract here is the two versions and that neither is left to the runner's incidental tmux.
+| Step | Fails the job on |
+| --- | --- |
+| Release tarball pinned by SHA-256 in the matrix | A wrong or missing download |
+| Source build on `ubuntu-24.04`, then `PATH` | A build error |
+| Binary path and `tmux -V` compared with the matrix | A stale or wrong tmux |
+| Ten passing real-server tests with `HERDR_TEST_REQUIRE_TMUX=1` | A skipped, missing, or renamed test |
+
+Both contexts are required checks; [release protection](release-protection.md) lists them.
 
 ## Unsupported versions
 
@@ -108,4 +115,6 @@ This record is the source of truth for the versions. The workflow matrix and the
 | Minimum tmux 2.9 | The highest first-appearance among the required capabilities is `window-size` in 2.9. tmux 2.6 already satisfies every capability the code implements today, so only the multi-client size policy raises the floor. Rejected: 2.6, which would leave the sizing policy to an implicit default. |
 | Current stable tmux 3.8 | It is the newest tmux release at the time of writing and what `brew install tmux` and current packages provide. |
 | Compatibility CI runs the minimum and the current stable | Two pinned points cover the oldest supported behaviour and the behaviour a new user gets, which is where a regression is most likely (#146). |
+| CI builds tmux from the checksum-pinned release tarball | No Ubuntu release ships both versions, and a distro package cannot be pinned to an exact upstream release. Rejected: the runner image's incidental tmux. |
+| The compatibility jobs run on `ubuntu-24.04` | tmux 2.9 needs a pinned compiler, so `ubuntu-latest` must not move under it. Rejected: `ubuntu-latest`. |
 | No runtime version gate | Below-floor behaviour is documented and the floor is covered by CI, so a gate would add code without a requirement behind it. |

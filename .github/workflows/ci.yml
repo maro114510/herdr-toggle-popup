@@ -76,6 +76,89 @@ jobs:
         with:
           version: v0.83.3
 
+  # Real tmux coverage on a pinned version each, not the runner image's. The job name is explicit
+  # because an include-only matrix would append the SHA-256 to the required check context.
+  tmux-compat:
+    name: tmux-compat (${{ matrix.tmux }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # SHA-256 of the release assets at
+          # https://github.com/tmux/tmux/releases/download/<version>/tmux-<version>.tar.gz
+          - tmux: "2.9"
+            sha256: 34901232f486fd99f3a39e864575e658b5d49f43289ccc6ee57c365f2e2c2980
+          - tmux: "3.8"
+            sha256: e79c699c7e949dccd0a4a125e17b8d1261e311b16979dbc8eb34542f3966d82e
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install tmux ${{ matrix.tmux }} build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison build-essential libevent-dev libncurses-dev pkg-config
+      - name: Build and install tmux ${{ matrix.tmux }}
+        env:
+          TMUX_VERSION: ${{ matrix.tmux }}
+          TMUX_SHA256: ${{ matrix.sha256 }}
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/tmux-src"
+          prefix="$RUNNER_TEMP/tmux-$TMUX_VERSION"
+          tarball="tmux-$TMUX_VERSION.tar.gz"
+          mkdir -p "$source_dir"
+          cd "$source_dir"
+          curl -fsSL --retry 3 -o "$tarball" \
+            "https://github.com/tmux/tmux/releases/download/$TMUX_VERSION/$tarball"
+          printf '%s  %s\n' "$TMUX_SHA256" "$tarball" | sha256sum -c -
+          tar xzf "$tarball"
+          cd "tmux-$TMUX_VERSION"
+          ./configure --prefix="$prefix"
+          make -j"$(nproc)"
+          make install
+          printf '%s/bin\n' "$prefix" >> "$GITHUB_PATH"
+      - name: Report the tmux version
+        env:
+          TMUX_VERSION: ${{ matrix.tmux }}
+        run: |
+          set -euo pipefail
+          tmux_path="$(command -v tmux)"
+          tmux_version="$(tmux -V)"
+          printf 'tmux binary: %s\ntmux version: %s\n' "$tmux_path" "$tmux_version"
+          expected_path="$RUNNER_TEMP/tmux-$TMUX_VERSION/bin/tmux"
+          if [ "$tmux_path" != "$expected_path" ]; then
+            printf '::error::expected the built binary at %s, found %s\n' "$expected_path" "$tmux_path"
+            exit 1
+          fi
+          if [ "$tmux_version" != "tmux $TMUX_VERSION" ]; then
+            printf '::error::expected tmux %s, found %s\n' "$TMUX_VERSION" "$tmux_version"
+            exit 1
+          fi
+      - name: Run the real tmux server tests
+        env:
+          HERDR_TEST_REQUIRE_TMUX: "1"
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/real-tmux-tests.log"
+          go test -count=1 -run TestTmuxAttachScript -v ./internal/popupshell/ | tee "$log"
+          # A -run pattern that matches nothing exits 0, so assert the tests both ran and passed.
+          if grep -q -- '--- SKIP' "$log"; then
+            printf '::error::a real tmux server test was skipped\n'
+            exit 1
+          fi
+          passed="$(grep -c -- '^--- PASS: TestTmuxAttachScript' "$log" || true)"
+          if [ "$passed" -lt 10 ]; then
+            printf '::error::expected the 10 real tmux server tests to pass, saw %s\n' "$passed"
+            exit 1
+          fi
+
   race:
     strategy:
       matrix:
