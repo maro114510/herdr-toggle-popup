@@ -43,12 +43,19 @@ CI runs these checks on every pull request.
 | Go fixups | `go fix ./...` |
 | Vet | `go vet ./...` |
 | Tests | `go test -coverprofile=coverage.out ./...` |
+| Real tmux server tests | `go test -count=1 -run TestTmuxAttachScript ./internal/popupshell/` |
 | Race detection | `go test -race ./...` |
 | Vulnerabilities | `govulncheck ./...` |
 | Shell scripts | `shellcheck scripts/*.sh` |
 | Lint | `golangci-lint run` |
 
 `gofmt` must print nothing. `go fix` must not modify tracked Go files. `go mod tidy` must not modify `go.mod` or `go.sum`. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
+
+The real tmux server tests skip themselves when tmux is not on `PATH`. CI sets `HERDR_TEST_REQUIRE_TMUX=1`, so a missing tmux fails them instead, and runs them on both versions in the [compatibility record](./docs/design/tmux-compatibility.md).
+
+```bash
+HERDR_TEST_REQUIRE_TMUX=1 go test -count=1 -run TestTmuxAttachScript ./internal/popupshell/
+```
 
 ### Pinned CI tools
 
@@ -59,6 +66,8 @@ GitHub Actions are pinned to commit SHAs and updated by Dependabot. Tools that C
 | govulncheck | `golang.org/x/vuln/cmd/govulncheck@v1.8.0` |
 | golangci-lint | `version: v2.14.0` |
 | octocov | `version: v0.83.3` |
+| tmux (compatibility minimum) | `2.9`, from the release tarball pinned by SHA-256 in the matrix |
+| tmux (compatibility current stable) | `3.8`, from the release tarball pinned by SHA-256 in the matrix |
 
 Dependabot does not manage these, so bump them by hand:
 
@@ -66,7 +75,7 @@ Dependabot does not manage these, so bump them by hand:
 2. Replace its pin in [.github/workflows/ci.yml](./.github/workflows/ci.yml).
 3. Run the tool's check and confirm the version it logs matches the new pin, for example `govulncheck ./...` or `golangci-lint run`.
 
-The workflow file is the source of truth; keep this table in sync when it changes.
+The workflow file is the source of truth; keep this table in sync when it changes. The tmux pins follow the [update policy](./docs/design/tmux-compatibility.md), which is the source of truth for those versions.
 
 ## Project layout
 
