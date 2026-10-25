@@ -18,9 +18,16 @@ import (
 )
 
 const (
+	// SocketName is the dedicated tmux server socket that holds saved popup shells.
+	SocketName = "herdr-toggle-popup"
+	// CloseKeyOption is the session option that records the key closing that session.
+	CloseKeyOption = "@herdr-close-key"
+	// DefaultEntrypoint is the manifest's popup entrypoint.
+	DefaultEntrypoint = "shell"
+
 	shellEnvVar        = "SHELL"
 	defaultShell       = "/bin/zsh"
-	defaultEntrypoint  = "shell"
+	defaultEntrypoint  = DefaultEntrypoint
 	shellBin           = "sh"
 	tmuxBin            = "tmux"
 	scopeDirectory     = "directory"
@@ -31,6 +38,29 @@ const (
 	namespaceHashBytes = 16
 	sessionHashBytes   = 16
 )
+
+// SessionIdentity is the saved-shell identity resolved from the plugin environment.
+type SessionIdentity struct {
+	Namespace string
+	Key       string
+	Session   string
+	Cwd       string
+}
+
+// ResolveIdentity returns the identity of the saved shell for scopeMode and entrypoint.
+// Namespace is populated even when a later input is missing, so a diagnostic can still report it.
+func ResolveIdentity(scopeMode, entrypoint string) (SessionIdentity, error) {
+	namespace, err := namespace()
+	if err != nil {
+		return SessionIdentity{}, err
+	}
+
+	key, cwd, err := tmuxSessionKey(scopeMode, entrypoint)
+	if err != nil {
+		return SessionIdentity{Namespace: namespace, Key: "", Session: "", Cwd: ""}, err
+	}
+	return SessionIdentity{Namespace: namespace, Key: key, Session: sessionName(key), Cwd: cwd}, nil
+}
 
 // tmuxAttachScript creates or reuses the popup session on the dedicated server, then attaches.
 // It sets set-clipboard=external on every connection so mouse copies reach the outer terminal.
