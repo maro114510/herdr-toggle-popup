@@ -400,6 +400,53 @@ func popupWindowSize(t *testing.T, env []string, tmuxPath, session string) strin
 	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", session, "#{window_width}x#{window_height}"))
 }
 
+// wantTmuxClientCount waits until exactly count clients are attached.
+func wantTmuxClientCount(t *testing.T, env []string, tmuxPath string, count int) {
+	t.Helper()
+
+	eventually(t, fmt.Sprintf("%d attached clients", count), func() (bool, string) {
+		names := tmuxClientNames(t, env, tmuxPath)
+		return len(names) == count, fmt.Sprintf("clients = %v", names)
+	})
+}
+
+// wantClientsAttachedTo waits until every attached client belongs to session.
+func wantClientsAttachedTo(t *testing.T, env []string, tmuxPath, session string, count int) {
+	t.Helper()
+
+	eventually(t, fmt.Sprintf("%d clients attached to %s", count, session), func() (bool, string) {
+		out := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "list-clients", "-F", "#{client_session}"))
+		var sessions []string
+		for line := range strings.SplitSeq(out, "\n") {
+			if line != "" {
+				sessions = append(sessions, line)
+			}
+		}
+		ok := len(sessions) == count
+		for _, attached := range sessions {
+			ok = ok && attached == session
+		}
+		return ok, fmt.Sprintf("client sessions = %v", sessions)
+	})
+}
+
+// popupSessionField reads one format field for the saved session.
+func popupSessionField(t *testing.T, env []string, tmuxPath, format string) string {
+	t.Helper()
+
+	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", testSessionName, format))
+}
+
+// waitForPaneText waits until the saved session's pane shows want, which proves the shell ran.
+func waitForPaneText(t *testing.T, env []string, tmuxPath, session, want string) {
+	t.Helper()
+
+	eventually(t, fmt.Sprintf("pane text %q", want), func() (bool, string) {
+		text := dedicatedTmux(t, env, tmuxPath, "capture-pane", "-p", "-t", session)
+		return strings.Contains(text, want), fmt.Sprintf("pane text = %q", strings.TrimSpace(text))
+	})
+}
+
 // wantPopupWindowSize waits until the session window has exactly cols by rows cells.
 func wantPopupWindowSize(t *testing.T, env []string, tmuxPath string, cols, rows int) {
 	t.Helper()
@@ -1184,6 +1231,103 @@ func TestRunAppliesCloseKeyOnEveryConnection(t *testing.T) {
 	if got := strings.Count(tmuxAttachScript, "key=\"$5\""); got != 1 {
 		t.Fatalf("close-key setup runs %d times, want once on the shared path:\n%s", got, tmuxAttachScript)
 	}
+}
+
+// TestTmuxAttachScriptSharesOneSessionAcrossClients attaches two clients to the same saved shell.
+// They must see one session, one pane, and the smallest attached size.
+func TestTmuxAttachScriptSharesOneSessionAcrossClients(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+	startTmuxClient(t, env, tmuxPath, smallClientCols, smallClientRows)
+	panePID := popupSessionField(t, env, tmuxPath, "#{pane_pid}")
+
+	startTmuxClient(t, env, tmuxPath, largeClientCols, largeClientRows)
+
+	wantTmuxClientCount(t, env, tmuxPath, 2)
+	wantClientsAttachedTo(t, env, tmuxPath, testSessionName, 2)
+	if got := popupSessionField(t, env, tmuxPath, "#{pane_pid}"); got != panePID {
+		t.Errorf("pane pid = %q after the second client attached, want the same shell %q", got, panePID)
+	}
+	sessions := strings.Fields(strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "list-sessions", "-F", "#{session_name}")))
+	if len(sessions) != 1 || sessions[0] != testSessionName {
+		t.Errorf("sessions = %v, want only %q", sessions, testSessionName)
+	}
+	wantPopupWindowSize(t, env, tmuxPath, smallClientCols, smallClientRows)
+}
+
+// TestTmuxAttachScriptKeepsOtherClientAndShellWhenOneClientCloses closes the small client. The
+// other client, the saved session, and its shell must survive, and the window must grow back.
+func TestTmuxAttachScriptKeepsOtherClientAndShellWhenOneClientCloses(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+	small := startTmuxClient(t, env, tmuxPath, smallClientCols, smallClientRows)
+	startTmuxClient(t, env, tmuxPath, largeClientCols, largeClientRows)
+	wantPopupWindowSize(t, env, tmuxPath, smallClientCols, smallClientRows)
+	created := popupSessionField(t, env, tmuxPath, "#{session_created}")
+	panePID := popupSessionField(t, env, tmuxPath, "#{pane_pid}")
+
+	small.close(t)
+
+	wantTmuxClientCount(t, env, tmuxPath, 1)
+	wantPopupWindowSize(t, env, tmuxPath, largeClientCols, largeClientRows)
+	if !tmuxSessionExists(t, env, tmuxPath, testSessionName, "-L", popupSocketName, "-f", "/dev/null") {
+		t.Fatalf("session %q is gone after one client closed", testSessionName)
+	}
+	if got := popupSessionField(t, env, tmuxPath, "#{session_created}"); got != created {
+		t.Errorf("session_created = %q, want the saved session %q", got, created)
+	}
+	if got := popupSessionField(t, env, tmuxPath, "#{pane_pid}"); got != panePID {
+		t.Errorf("pane pid = %q, want the surviving shell %q", got, panePID)
+	}
+
+	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "printf 'shell-%s\n' 42", "Enter")
+	waitForPaneText(t, env, tmuxPath, testSessionName, "shell-42")
+}
+
+// TestTmuxAttachScriptResumesShellAfterLastClientCloses closes the only client, then reconnects.
+// The saved session and the same running shell must come back with the state they held.
+func TestTmuxAttachScriptResumesShellAfterLastClientCloses(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+	client := startTmuxClient(t, env, tmuxPath, largeClientCols, largeClientRows)
+	created := popupSessionField(t, env, tmuxPath, "#{session_created}")
+	panePID := popupSessionField(t, env, tmuxPath, "#{pane_pid}")
+
+	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "export HTP_RESUMED_SHELL=still-here", "Enter")
+	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "printf 'exported-%s\n' marker", "Enter")
+	waitForPaneText(t, env, tmuxPath, testSessionName, "exported-marker")
+
+	client.close(t)
+
+	wantTmuxClientCount(t, env, tmuxPath, 0)
+	if !tmuxSessionExists(t, env, tmuxPath, testSessionName, "-L", popupSocketName, "-f", "/dev/null") {
+		t.Fatalf("session %q is gone after the last client closed", testSessionName)
+	}
+	if got := popupSessionField(t, env, tmuxPath, "#{session_created}"); got != created {
+		t.Errorf("session_created = %q, want the saved session %q", got, created)
+	}
+	if got := popupSessionField(t, env, tmuxPath, "#{pane_pid}"); got != panePID {
+		t.Errorf("pane pid = %q, want the surviving shell %q", got, panePID)
+	}
+
+	startTmuxClient(t, env, tmuxPath, largeClientCols, largeClientRows)
+	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, `echo "resumed:$HTP_RESUMED_SHELL"`, "Enter")
+	waitForPaneText(t, env, tmuxPath, testSessionName, "resumed:still-here")
 }
 
 // TestRunAppliesWindowSizePolicyOnEveryConnection keeps the sizing policy off the branch split.
