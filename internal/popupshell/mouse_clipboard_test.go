@@ -244,7 +244,7 @@ func runDragSetup(t *testing.T, env []string, tmuxPath, term string) *ptyTmuxCli
 	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
 	dedicatedTmux(t, env, tmuxPath, "respawn-pane", "-k", "-t", testSessionName,
 		fmt.Sprintf("printf '%s\\n'; sleep 60", dragTarget))
-	waitForPaneText(t, env, tmuxPath, testSessionName, dragTarget)
+	waitForPaneText(t, env, tmuxPath, dragTarget)
 
 	client := startPtyTmuxClient(t, env, tmuxPath, term)
 	waitForPtyText(t, client, dragTarget)
@@ -267,7 +267,7 @@ func TestTmuxAttachScriptMouseDragCopiesToOuterClipboard(t *testing.T) {
 	}
 
 	client := runDragSetup(t, env, tmuxPath, clipboardTerm)
-	sendMouseDrag(t, client, len(dragTarget))
+	sendMouseDrag(t, client, len(dragTarget)+1)
 
 	waitForTmuxBuffer(t, env, tmuxPath, dragTarget)
 	waitForOSC52(t, client, dragTarget)
@@ -288,7 +288,7 @@ func TestTmuxAttachScriptMouseDragWithoutMsSkipsOSC52(t *testing.T) {
 	}
 
 	client := runDragSetup(t, env, tmuxPath, noMsTerm)
-	sendMouseDrag(t, client, len(dragTarget))
+	sendMouseDrag(t, client, len(dragTarget)+1)
 
 	waitForTmuxBuffer(t, env, tmuxPath, dragTarget)
 	// The buffer appears on release, but tmux writes to the client asynchronously. Give the PTY

@@ -6,7 +6,7 @@ A [Herdr](https://herdr.dev) plugin that toggles a full-screen popup shell with 
 
 ## Install
 
-This plugin requires Herdr 0.9.3 or newer and `tmux` 2.9 or newer.
+This plugin requires Herdr 0.9.3 or newer and `tmux` 3.4 or newer.
 
 ```bash
 herdr plugin install maro114510/herdr-toggle-popup
@@ -74,7 +74,7 @@ The popup enables tmux mouse reporting, so a plain drag is tmux selection rather
 
 `external` rather than `on` is deliberate: tmux still sends its own copies outward, but a pane-originated OSC52 sequence cannot create or overwrite a tmux buffer, which `on` would allow. The plugin sets the option on every connection, including a reattach.
 
-The automated tests stop at the OSC52 sequence tmux writes to its client. To verify the last hop into the macOS clipboard, run the [host clipboard smoke test](./docs/smoke-test-clipboard.md) with a real popup and `pbpaste`.
+This path requires tmux 3.4 or newer: tmux 2.9–3.3 crash on Linux with ncurses 6.4 when they emit the copy. The automated tests stop at the OSC52 sequence tmux writes to its client. To verify the last hop into the macOS clipboard, run the [host clipboard smoke test](./docs/smoke-test-clipboard.md) with a real popup and `pbpaste`.
 
 A saved shell is keyed to its Herdr namespace, its scope, and its entrypoint, and it is reused whenever all three are unchanged. The namespace is the hash of `HERDR_SOCKET_PATH`, so the same workspace ID, tab ID, or focused-directory string in two Herdr instances (or two named sessions) opens two different saved shells instead of sharing one. `HERDR_SOCKET_PATH` must be set when the shell starts; if it is missing, the popup shows an error and never connects to tmux, rather than falling back to a shared, un-namespaced session.
 

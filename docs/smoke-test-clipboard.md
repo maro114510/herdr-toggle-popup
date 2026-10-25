@@ -9,7 +9,7 @@ Run this procedure on macOS after a change to the tmux attach script, the suppor
 | Requirement | Check |
 | --- | --- |
 | Herdr 0.9.3 or newer | Required version in the [README](../README.md) |
-| tmux 2.9 or newer | `tmux -V` |
+| tmux 3.4 or newer | `tmux -V` |
 | The plugin is installed and the toggle key is bound | `Alt+L` opens the popup |
 | `pbpaste` and `pbcopy` are available | `command -v pbpaste pbcopy` |
 
@@ -79,9 +79,10 @@ The popup must run a terminal that advertises the `Ms` terminfo capability. `Ms`
 | Step 3 has no `Ms=` line | The outer terminal's terminfo lacks `Ms`, so tmux cannot send the copy outward. The clipboard claim does not hold in this environment. |
 | Step 7 is wrong or empty | The drag did not become a tmux selection. Check that mouse mode is on in the popup and that no full-screen application inside the pane owns mouse reporting. |
 | Step 7 is right but step 8 shows the sentinel | The tmux buffer path works but the OSC52 boundary does not. Recheck step 3 and the outer terminal's clipboard support. |
+| The popup or tmux server disappears on release | tmux below 3.4 on Linux with ncurses 6.4 crashes while emitting the OSC52 copy. Upgrade to tmux 3.4 or newer. |
 | Step 8 contains the text but Herdr's own selection also runs | The pane's application enabled mouse reporting, so Herdr native selection should stay out of the popup. Check the application or the Herdr `ui.copy_on_select` setting. |
 
 ## Related coverage
 
 - `internal/popupshell/mouse_clipboard_test.go` drives a real mouse drag through a PTY. It asserts the tmux buffer contents and decodes the emitted OSC52 payload, and it proves that a client without `Ms` emits no OSC52.
-- The `tmux-compat` CI job runs those tests against tmux 2.9 and 3.8 with `HERDR_TEST_REQUIRE_TMUX=1`, so a missing tmux fails the job instead of skipping the coverage.
+- The `tmux-compat` CI job runs those tests against tmux 3.4 and 3.8 with `HERDR_TEST_REQUIRE_TMUX=1`, so a missing tmux fails the job instead of skipping the coverage.
