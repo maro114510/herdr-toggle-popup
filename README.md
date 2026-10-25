@@ -74,6 +74,8 @@ The popup enables tmux mouse reporting, so a plain drag is tmux selection rather
 
 `external` rather than `on` is deliberate: tmux still sends its own copies outward, but a pane-originated OSC52 sequence cannot create or overwrite a tmux buffer, which `on` would allow. The plugin sets the option on every connection, including a reattach.
 
+The automated tests stop at the OSC52 sequence tmux writes to its client. To verify the last hop into the macOS clipboard, run the [host clipboard smoke test](./docs/smoke-test-clipboard.md) with a real popup and `pbpaste`.
+
 A saved shell is keyed to its Herdr namespace, its scope, and its entrypoint, and it is reused whenever all three are unchanged. The namespace is the hash of `HERDR_SOCKET_PATH`, so the same workspace ID, tab ID, or focused-directory string in two Herdr instances (or two named sessions) opens two different saved shells instead of sharing one. `HERDR_SOCKET_PATH` must be set when the shell starts; if it is missing, the popup shows an error and never connects to tmux, rather than falling back to a shared, un-namespaced session.
 
 Herdr permits one native popup at a time. Close any existing native popup before opening this shell.

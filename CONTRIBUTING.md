@@ -57,6 +57,8 @@ The real tmux server tests skip themselves when tmux is not on `PATH`. CI sets `
 HERDR_TEST_REQUIRE_TMUX=1 go test -count=1 -run TestTmuxAttachScript ./internal/popupshell/
 ```
 
+Those tests include the PTY mouse-drag checks, which read back both the tmux buffer and the decoded OSC52 payload. They use `infocmp` from ncurses to confirm the client terminal's `Ms` capability. The final hop into the host clipboard is verified manually with the [macOS smoke test](./docs/smoke-test-clipboard.md).
+
 ### Pinned CI tools
 
 GitHub Actions are pinned to commit SHAs and updated by Dependabot. Tools that CI runs but that are not Actions are pinned to exact releases in [.github/workflows/ci.yml](./.github/workflows/ci.yml), so an unchanged workflow revision fetches the same binaries:
@@ -88,6 +90,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [.github/workflows/](./.github/workflows) | CI and release automation |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
 | [docs/design/tmux-compatibility.md](./docs/design/tmux-compatibility.md) | Minimum tmux version, required capabilities, and compatibility CI targets |
+| [docs/smoke-test-clipboard.md](./docs/smoke-test-clipboard.md) | Manual macOS check that a popup drag reaches the host clipboard |
 
 Add or update tests in the relevant internal package.
 
