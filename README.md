@@ -66,6 +66,8 @@ The plugin uses Herdr's native full-screen `popup` placement. Herdr creates the 
 
 The shell runs inside a named `tmux` session on a dedicated server, so tmux's default mouse bindings stay intact. While the popup is visible, the close key is handled by that session and detaches only its current client. It is `Alt+L` by default. Herdr closes the popup and the shell keeps running. Pressing the close key again opens a fresh native popup and resumes the same session. The tmux status line stays disabled, and mouse wheel and trackpad scrolling move the shell's output history.
 
+Multiple clients can attach to one saved shell. A popup whose namespace, scope, and entrypoint match an existing session attaches to it as another tmux client instead of starting a second shell. The plugin sets the tmux `window-size` policy to `smallest`, so the shared window follows the smallest attached client and resizing any client resizes the window. When one popup closes, only that client detaches: the other clients and the shell keep running. Closing the last client leaves the saved session in place, and the next popup resumes the same shell.
+
 ### Mouse selection and the clipboard
 
 The popup enables tmux mouse reporting, so a plain drag is tmux selection rather than Herdr native selection: releasing it fills the tmux buffer and, because the dedicated server runs with `set-clipboard external`, also writes the text to the outer terminal's clipboard. Herdr's own selection (`ui.copy_on_select`) only applies to panes whose application has not enabled mouse reporting, so it stays out of the popup.
