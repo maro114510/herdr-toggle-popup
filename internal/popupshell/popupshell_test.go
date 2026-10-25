@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,12 @@ import (
 // - real tmux server: a name tmux rejects falls back to the default
 // - real tmux server: the dedicated server reports set-clipboard external for new and existing sessions
 // - real tmux server: a pane-originated OSC52 sequence never becomes a tmux buffer
+// - real tmux server: the window sizing policy is smallest on new and existing sessions
+// - real tmux server: the smallest attached client sets the window size
+// - real tmux server: resizing a client updates the window size
+// - real tmux server: two clients attach to one session and pane
+// - real tmux server: closing one client keeps the other client and shell
+// - real tmux server: reconnecting after the last client closes resumes the shell
 // - real tmux server: new session only on the dedicated server
 // - real tmux server: reopening reuses the dedicated session
 // - real tmux server: legacy sessions on both servers are not removed
@@ -245,6 +252,170 @@ func isolatedServers(t *testing.T, env []string, tmuxPath string) {
 		killTmuxServer(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null")
 		killTmuxServer(t, env, tmuxPath, "-f", "/dev/null")
 	})
+}
+
+// Multi-client test sizes. The popup session runs with its status line off, so the window size
+// equals the smallest attached client's terminal size.
+const (
+	smallClientCols = 80
+	smallClientRows = 24
+	largeClientCols = 100
+	largeClientRows = 30
+	wideClientCols  = 120
+	wideClientRows  = 40
+	tinyClientCols  = 60
+	tinyClientRows  = 20
+
+	multiClientTimeout  = 5 * time.Second
+	multiClientInterval = 25 * time.Millisecond
+)
+
+// tmuxClient is one control-mode tmux client attached to the popup session. Control mode is a real
+// client for window sizing but needs no terminal, so these tests need no PTY dependency and can
+// set any size. tmux 2.9 applies a control client's size to the session only through
+// refresh-client -C, which is exactly the resize these tests drive.
+type tmuxClient struct {
+	cmd    *exec.Cmd
+	stdin  *os.File
+	name   string
+	closed bool
+}
+
+// close ends this client's attachment the way a closed popup does: its process and stdin go away.
+func (c *tmuxClient) close(t *testing.T) {
+	t.Helper()
+	if c.closed {
+		return
+	}
+	c.closed = true
+	_ = c.stdin.Close()
+	if c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
+	_ = c.cmd.Wait()
+}
+
+// eventually polls check until it reports success, failing with its detail on timeout.
+func eventually(t *testing.T, description string, check func() (bool, string)) {
+	t.Helper()
+
+	deadline := time.Now().Add(multiClientTimeout)
+	for {
+		ok, detail := check()
+		if ok {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s: %s", description, detail)
+		}
+		time.Sleep(multiClientInterval)
+	}
+}
+
+// tmuxClientNames lists the clients attached to the dedicated server.
+func tmuxClientNames(t *testing.T, env []string, tmuxPath string) []string {
+	t.Helper()
+
+	out := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "list-clients", "-F", "#{client_name}"))
+	if out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
+}
+
+// startTmuxClient attaches a control client and gives it the requested size.
+func startTmuxClient(t *testing.T, env []string, tmuxPath string, cols, rows int) *tmuxClient {
+	t.Helper()
+
+	before := tmuxClientNames(t, env, tmuxPath)
+
+	stdinReader, stdinWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create control client stdin: %v", err)
+	}
+	cmd := exec.Command(tmuxPath, "-L", popupSocketName, "-f", "/dev/null", "-C", "attach-session", "-t", testSessionName)
+	cmd.Env = env
+	cmd.Stdin = stdinReader
+	if err := cmd.Start(); err != nil {
+		_ = stdinReader.Close()
+		_ = stdinWriter.Close()
+		t.Fatalf("start control client: %v", err)
+	}
+	_ = stdinReader.Close()
+
+	client := &tmuxClient{cmd: cmd, stdin: stdinWriter, name: "", closed: false}
+	t.Cleanup(func() { client.close(t) })
+
+	eventually(t, "a new tmux client to attach", func() (bool, string) {
+		names := tmuxClientNames(t, env, tmuxPath)
+		for _, name := range names {
+			if !slices.Contains(before, name) {
+				client.name = name
+				return true, ""
+			}
+		}
+		return false, fmt.Sprintf("clients = %v", names)
+	})
+	setTmuxClientSize(t, env, tmuxPath, client.name, cols, rows)
+	return client
+}
+
+// setTmuxClientSize resizes an attached client. tmux reports no height for a control client, so
+// callers verify the effect through the window size, which is the behavior under test. The
+// width,height form is required because tmux 2.9 rejects the WxH form.
+func setTmuxClientSize(t *testing.T, env []string, tmuxPath, name string, cols, rows int) {
+	t.Helper()
+
+	size := fmt.Sprintf("%d,%d", cols, rows)
+	dedicatedTmux(t, env, tmuxPath, "refresh-client", "-C", size, "-t", name)
+	eventually(t, fmt.Sprintf("client %s to report width %d", name, cols), func() (bool, string) {
+		got := tmuxClientWidth(t, env, tmuxPath, name)
+		return got == cols, fmt.Sprintf("client %s reports width %d", name, got)
+	})
+}
+
+// tmuxClientWidth returns a client's reported terminal width, or 0 when it is not attached.
+func tmuxClientWidth(t *testing.T, env []string, tmuxPath, name string) int {
+	t.Helper()
+
+	out := dedicatedTmux(t, env, tmuxPath, "list-clients", "-F", "#{client_name}|#{client_width}")
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		clientName, width, ok := strings.Cut(line, "|")
+		if !ok || clientName != name {
+			continue
+		}
+		parsed, err := strconv.Atoi(width)
+		if err != nil {
+			return 0
+		}
+		return parsed
+	}
+	return 0
+}
+
+// popupWindowSize returns the session window's size in cells.
+func popupWindowSize(t *testing.T, env []string, tmuxPath, session string) string {
+	t.Helper()
+
+	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", session, "#{window_width}x#{window_height}"))
+}
+
+// wantPopupWindowSize waits until the session window has exactly cols by rows cells.
+func wantPopupWindowSize(t *testing.T, env []string, tmuxPath string, cols, rows int) {
+	t.Helper()
+
+	want := fmt.Sprintf("%dx%d", cols, rows)
+	eventually(t, "window size "+want, func() (bool, string) {
+		got := popupWindowSize(t, env, tmuxPath, testSessionName)
+		return got == want, fmt.Sprintf("window size = %q", got)
+	})
+}
+
+// windowSizeOption reads the session window's explicit sizing policy.
+func windowSizeOption(t *testing.T, env []string, tmuxPath, session string) string {
+	t.Helper()
+
+	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-w", "-t", session, "window-size"))
 }
 
 func TestTmuxAttachScriptCreatesNewSessionOnlyOnDedicatedServer(t *testing.T) {
@@ -583,6 +754,68 @@ func runPaneOSC52Probe(t *testing.T, env []string, tmuxPath, payload string) {
 		}
 		time.Sleep(osc52ProbeInterval)
 	}
+}
+
+// TestTmuxAttachScriptSetsWindowSizePolicyForNewAndExistingSessions covers both delivery paths of
+// the sizing contract: a freshly created session and a reattach to a saved one must leave the
+// window on smallest, so a value changed in between is corrected instead of inherited.
+func TestTmuxAttachScriptSetsWindowSizePolicyForNewAndExistingSessions(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+	if got := windowSizeOption(t, env, tmuxPath, testSessionName); got != "window-size smallest" {
+		t.Errorf("new session window-size = %q, want %q", got, "window-size smallest")
+	}
+
+	dedicatedTmux(t, env, tmuxPath, "set-option", "-w", "-t", testSessionName, "window-size", "largest")
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+	if got := windowSizeOption(t, env, tmuxPath, testSessionName); got != "window-size smallest" {
+		t.Errorf("existing session window-size = %q, want %q", got, "window-size smallest")
+	}
+}
+
+// TestTmuxAttachScriptUsesSmallestClientForWindowSize attaches the large client last. A "latest"
+// or "largest" policy would pick that one, so only an explicit smallest policy leaves the window
+// at the small client's size.
+func TestTmuxAttachScriptUsesSmallestClientForWindowSize(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+
+	startTmuxClient(t, env, tmuxPath, smallClientCols, smallClientRows)
+	startTmuxClient(t, env, tmuxPath, largeClientCols, largeClientRows)
+
+	wantPopupWindowSize(t, env, tmuxPath, smallClientCols, smallClientRows)
+}
+
+// TestTmuxAttachScriptUpdatesWindowSizeWhenAClientResizes proves both directions: growing the
+// smallest client hands the window to the other one, and shrinking it takes the window back.
+func TestTmuxAttachScriptUpdatesWindowSizeWhenAClientResizes(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+
+	large := startTmuxClient(t, env, tmuxPath, largeClientCols, largeClientRows)
+	small := startTmuxClient(t, env, tmuxPath, smallClientCols, smallClientRows)
+	wantPopupWindowSize(t, env, tmuxPath, smallClientCols, smallClientRows)
+
+	setTmuxClientSize(t, env, tmuxPath, small.name, wideClientCols, wideClientRows)
+	wantPopupWindowSize(t, env, tmuxPath, largeClientCols, largeClientRows)
+
+	setTmuxClientSize(t, env, tmuxPath, large.name, tinyClientCols, tinyClientRows)
+	wantPopupWindowSize(t, env, tmuxPath, tinyClientCols, tinyClientRows)
 }
 
 //nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
@@ -924,6 +1157,7 @@ func TestRunConfiguresDedicatedTmuxServerBeforeAttaching(t *testing.T) {
 		"new-session -d -s \"$1\" -c \"$2\" \"$3\"",
 		"set-option -t \"$1\" status off",
 		"set-option -t \"$1\" mouse on",
+		"set-option -w -t \"$1\" window-size smallest",
 		"key=\"$5\"",
 		"set-option -t \"$1\" @herdr-close-key \"$key\"",
 		"bind-key -n \"$key\" if-shell -F \"#{==:#{@herdr-close-key},$key}\" \"detach-client\" \"send-keys $key\"",
@@ -949,6 +1183,22 @@ func TestRunAppliesCloseKeyOnEveryConnection(t *testing.T) {
 	}
 	if got := strings.Count(tmuxAttachScript, "key=\"$5\""); got != 1 {
 		t.Fatalf("close-key setup runs %d times, want once on the shared path:\n%s", got, tmuxAttachScript)
+	}
+}
+
+// TestRunAppliesWindowSizePolicyOnEveryConnection keeps the sizing policy off the branch split.
+// Moving it into either branch would leave the other path on a default that differs by version.
+func TestRunAppliesWindowSizePolicyOnEveryConnection(t *testing.T) {
+	t.Parallel()
+
+	const policy = "set-option -w -t \"$1\" window-size smallest"
+	branchEnd := strings.Index(tmuxAttachScript, "\nfi\n")
+	setup := strings.Index(tmuxAttachScript, policy)
+	if branchEnd < 0 || setup < 0 || setup < branchEnd {
+		t.Fatalf("window-size policy must run after the create/reattach split on every connection:\n%s", tmuxAttachScript)
+	}
+	if got := strings.Count(tmuxAttachScript, policy); got != 1 {
+		t.Fatalf("window-size policy runs %d times, want once on the shared path:\n%s", got, tmuxAttachScript)
 	}
 }
 
