@@ -50,7 +50,7 @@ Each row came from the release tarball built from source on macOS arm64 on 2026-
 | 3.7c | pass | accepted | accepted | present | yes |
 | 3.8 | pass | accepted | accepted | present | yes |
 
-Every capability the plugin uses today already passes on tmux 2.6, because the multi-client size policy (#147) is not applied yet. 2.6 stays below the minimum because `window-size` is rejected there, which makes it the highest tested passing release below the floor and the boundary case the record rules out. Releases 2.7 and 2.8 sit between it and the floor.
+tmux 2.6 passes every capability the plugin used before the multi-client size policy (#147), but it rejects `window-size`, which the plugin now sets on every connection. That rejection makes 2.6 the highest tested release below the floor and the boundary case the record rules out. Releases 2.7 and 2.8 sit between it and the floor.
 
 The results were collected on macOS. Linux distributions may carry minimal patches, so a Linux job in the compatibility matrix is the authoritative check there.
 
