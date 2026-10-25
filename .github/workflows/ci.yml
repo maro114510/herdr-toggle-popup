@@ -155,9 +155,18 @@ jobs:
           fi
           passed="$(grep -c -- '^--- PASS: TestTmuxAttachScript' "$log" || true)"
           if [ "$passed" -lt 10 ]; then
-            printf '::error::expected the 10 real tmux server tests to pass, saw %s\n' "$passed"
+            printf '::error::expected at least 10 real tmux server tests to pass, saw %s\n' "$passed"
             exit 1
           fi
+          # The count cannot prove the clipboard tests ran, so require each by name.
+          for test in \
+            TestTmuxAttachScriptMouseDragCopiesToOuterClipboard \
+            TestTmuxAttachScriptMouseDragWithoutMsSkipsOSC52; do
+            if ! grep -Fq -- "--- PASS: $test " "$log"; then
+              printf '::error::%s did not run and pass\n' "$test"
+              exit 1
+            fi
+          done
 
   race:
     strategy:
