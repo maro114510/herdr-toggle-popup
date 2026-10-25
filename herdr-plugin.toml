@@ -1,6 +1,6 @@
 id = "maro114510.toggle-popup"
 name = "Toggle Popup"
-version = "0.5.1"
+version = "1.0.0"
 min_herdr_version = "0.9.3"
 platforms = ["macos", "linux"]
 
