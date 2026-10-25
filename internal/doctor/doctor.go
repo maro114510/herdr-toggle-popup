@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -33,6 +35,8 @@ const (
 	supportedStateFormat = 1
 
 	diagnosticCommandTimeout = 3 * time.Second
+	clientFormat             = "#{client_session}\t#{client_name}\t#{client_termname}\t#{client_width}x#{client_height}\t#{client_flags}"
+	clientFieldCount         = 5
 
 	statusOK      = "ok"
 	statusWarning = "warning"
@@ -72,10 +76,11 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 	tmuxPath := diagnoseExecutable(stdout, "tmux", tmuxBin)
 	diagnoseToolVersion(stdout, "tmux version", tmuxPath, "-V")
 	cfg := diagnoseConfig(stdout)
-	diagnoseConnection(stdout, cfg.Scope)
+	session := diagnoseConnection(stdout, cfg.Scope)
 	term := diagnoseTerminal(stdout)
 	ms := newMsProbe()
 	diagnoseMs(stdout, ms, term)
+	diagnoseTmux(stdout, tmuxPath, session, cfg, ms)
 	diagnoseState(stdout)
 
 	return 0
@@ -280,6 +285,209 @@ func diagnoseMs(stdout io.Writer, probe *msProbe, term string) {
 // diagnoseTmux reports server presence, the saved session, its effective settings, and client
 // state. Every command it runs reads state; none creates a server, changes an option, or touches a
 // buffer or the clipboard.
+func diagnoseTmux(stdout io.Writer, tmuxPath, session string, cfg config.Config, ms *msProbe) {
+	if tmuxPath == "" {
+		_, _ = fmt.Fprintf(stdout, "tmux server: %s (tmux missing)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "tmux session: %s (tmux missing)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "set-clipboard: %s (tmux missing)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "mouse: %s (tmux missing)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "window-size: %s (tmux missing)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "close key: %s (configured %s; tmux missing)\n", statusUnknown, cfg.CloseKey)
+		return
+	}
+
+	sessions, err := sessionList(tmuxPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(stdout, "tmux server: absent (not started by doctor)")
+		_, _ = fmt.Fprintf(stdout, "tmux session: %s (server absent)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "set-clipboard: %s (server absent)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "mouse: %s (session not present)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "window-size: %s (session not present)\n", statusUnknown)
+		_, _ = fmt.Fprintf(stdout, "close key: %s (configured %s; session not present)\n", statusUnknown, cfg.CloseKey)
+		return
+	}
+
+	clients, clientsOK := clientList(tmuxPath)
+	clientCount := statusUnknown
+	if clientsOK {
+		clientCount = strconv.Itoa(len(clients))
+	}
+	_, _ = fmt.Fprintf(stdout, "tmux server: present (sessions=%d, clients=%s)\n", len(sessions), clientCount)
+
+	sessionExists := session != "" && slices.Contains(sessions, session)
+	switch {
+	case sessionExists:
+		sessionClients := statusUnknown
+		if clientsOK {
+			sessionClients = strconv.Itoa(countSessionClients(clients, session))
+		}
+		_, _ = fmt.Fprintf(stdout, "tmux session: present (clients=%s)\n", sessionClients)
+	case session == "":
+		_, _ = fmt.Fprintf(stdout, "tmux session: %s (connection identity unavailable)\n", statusUnknown)
+	default:
+		_, _ = fmt.Fprintln(stdout, "tmux session: missing (open the popup once to create it)")
+	}
+
+	diagnoseTmuxOption(stdout, tmuxPath, "set-clipboard", "set-clipboard", "external",
+		"show-options", "-s", "set-clipboard")
+
+	if !sessionExists {
+		reportMissingSessionSettings(stdout, cfg)
+		reportClients(stdout, clients, clientsOK, "", ms)
+		return
+	}
+
+	diagnoseTmuxOption(stdout, tmuxPath, "mouse", "mouse", "on",
+		"show-options", "-t", session, "mouse")
+	diagnoseTmuxOption(stdout, tmuxPath, "window-size", "window-size", "smallest",
+		"show-options", "-w", "-t", session, "window-size")
+	diagnoseCloseKey(stdout, tmuxPath, session, cfg.CloseKey)
+	reportClients(stdout, clients, clientsOK, session, ms)
+}
+
+func reportMissingSessionSettings(stdout io.Writer, cfg config.Config) {
+	_, _ = fmt.Fprintf(stdout, "mouse: %s (session not present)\n", statusUnknown)
+	_, _ = fmt.Fprintf(stdout, "window-size: %s (session not present)\n", statusUnknown)
+	_, _ = fmt.Fprintf(stdout, "close key: %s (configured %s; session not present)\n", statusUnknown, cfg.CloseKey)
+}
+
+// diagnoseTmuxOption reads one tmux option and compares it with the value the plugin requires.
+func diagnoseTmuxOption(stdout io.Writer, tmuxPath, label, name, want string, args ...string) {
+	raw, err := tmuxOutput(tmuxPath, args...)
+	if err != nil {
+		_, _ = fmt.Fprintf(stdout, "%s: %s (option not readable)\n", label, statusUnknown)
+		return
+	}
+	got, ok := optionValue(raw, name)
+	if !ok {
+		_, _ = fmt.Fprintf(stdout, "%s: %s (option not reported)\n", label, statusUnknown)
+		return
+	}
+	got = sanitizeText(got)
+	if got == want {
+		_, _ = fmt.Fprintf(stdout, "%s: %s (%s)\n", label, statusOK, got)
+		return
+	}
+	if got == "" {
+		got = "set"
+	}
+	_, _ = fmt.Fprintf(stdout, "%s: %s (%s; want %s)\n", label, statusWarning, got, want)
+}
+
+func diagnoseCloseKey(stdout io.Writer, tmuxPath, session, configured string) {
+	raw, err := tmuxOutput(tmuxPath, "show-options", "-t", session, popupshell.CloseKeyOption)
+	if err != nil {
+		_, _ = fmt.Fprintf(stdout, "close key: %s (configured %s; session option not readable)\n", statusUnknown, configured)
+		return
+	}
+	got, ok := optionValue(raw, popupshell.CloseKeyOption)
+	if !ok {
+		_, _ = fmt.Fprintf(stdout, "close key: %s (configured %s; session option not reported)\n", statusUnknown, configured)
+		return
+	}
+	got = sanitizeText(got)
+	if got == configured {
+		_, _ = fmt.Fprintf(stdout, "close key: %s (%s)\n", statusOK, got)
+		return
+	}
+	_, _ = fmt.Fprintf(stdout, "close key: %s (session=%s, configured=%s)\n", statusWarning, got, configured)
+}
+
+type tmuxClient struct {
+	session string
+	name    string
+	term    string
+	size    string
+	flags   string
+}
+
+// reportClients prints one line per attached client, including each client's Ms capability.
+// When onlySession is set, clients attached to other sessions are omitted.
+func reportClients(stdout io.Writer, clients []tmuxClient, clientsOK bool, onlySession string, ms *msProbe) {
+	if !clientsOK {
+		_, _ = fmt.Fprintf(stdout, "clients: %s (list-clients failed)\n", statusUnknown)
+		return
+	}
+	for _, client := range clients {
+		if onlySession != "" && client.session != onlySession {
+			continue
+		}
+		_, _ = fmt.Fprintf(stdout,
+			"client: session=%s, name=%s, term=%s, size=%s, flags=%s, Ms=%s\n",
+			displayValue(client.session), displayValue(client.name), displayValue(client.term),
+			displayValue(client.size), displayValue(client.flags), ms.check(client.term).status)
+	}
+}
+
+func countSessionClients(clients []tmuxClient, session string) int {
+	count := 0
+	for _, client := range clients {
+		if client.session == session {
+			count++
+		}
+	}
+	return count
+}
+
+func sessionList(tmuxPath string) ([]string, error) {
+	out, err := tmuxOutput(tmuxPath, "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return nil, err
+	}
+	var sessions []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			sessions = append(sessions, line)
+		}
+	}
+	return sessions, nil
+}
+
+func clientList(tmuxPath string) ([]tmuxClient, bool) {
+	out, err := tmuxOutput(tmuxPath, "list-clients", "-F", clientFormat)
+	if err != nil {
+		return nil, false
+	}
+	var clients []tmuxClient
+	for line := range strings.SplitSeq(out, "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", clientFieldCount)
+		if len(fields) != clientFieldCount {
+			return nil, false
+		}
+		clients = append(clients, tmuxClient{
+			session: fields[0],
+			name:    fields[1],
+			term:    fields[2],
+			size:    fields[3],
+			flags:   fields[4],
+		})
+	}
+	return clients, true
+}
+
+func tmuxOutput(tmuxPath string, args ...string) (string, error) {
+	return commandOutput(tmuxPath, slices.Concat([]string{"-L", popupshell.SocketName, "-f", "/dev/null"}, args)...)
+}
+
+// optionValue extracts a tmux option's value from `show-options` output, accepting a bare option
+// name as the empty value a flag reports.
+func optionValue(raw, name string) (string, bool) {
+	line := strings.TrimSpace(raw)
+	if line == "" {
+		return "", false
+	}
+	if value, ok := strings.CutPrefix(line, name+" "); ok {
+		return strings.TrimSpace(value), true
+	}
+	if line == name {
+		return "", true
+	}
+	return "", false
+}
+
 // commandOutput runs a bounded, read-only command and returns its trimmed stdout.
 func commandOutput(path string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), diagnosticCommandTimeout)
