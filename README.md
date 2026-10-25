@@ -141,6 +141,12 @@ Run the doctor command when collecting support details:
 "$HERDR_PLUGIN_ROOT/bin/toggle-popup" doctor
 ```
 
+It prints the plugin, Herdr, and tmux versions; the Herdr namespace hash, scope, and saved-session name; the effective popup size and close key; and the tmux server, session, and client state.
+For clipboard support it reports `mouse`, `set-clipboard`, and `window-size` as tmux actually has them, plus whether `TERM` and each attached client's terminal advertise the `Ms` capability tmux needs to send a selection to the outer terminal.
+A missing server, session, tool, or context is reported on its own line and the remaining checks still run.
+
+Diagnosis is read-only: it does not start a tmux server, change an option or binding, or touch a tmux buffer or the clipboard.
+
 ## License
 
 [Apache License 2.0](./LICENSE)
