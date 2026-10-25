@@ -86,8 +86,8 @@ jobs:
         include:
           # SHA-256 of the release assets at
           # https://github.com/tmux/tmux/releases/download/<version>/tmux-<version>.tar.gz
-          - tmux: "2.9"
-            sha256: 34901232f486fd99f3a39e864575e658b5d49f43289ccc6ee57c365f2e2c2980
+          - tmux: "3.4"
+            sha256: 551ab8dea0bf505c0ad6b7bb35ef567cdde0ccb84357df142c254f35a23e19aa
           - tmux: "3.8"
             sha256: e79c699c7e949dccd0a4a125e17b8d1261e311b16979dbc8eb34542f3966d82e
     runs-on: ubuntu-24.04
@@ -155,9 +155,18 @@ jobs:
           fi
           passed="$(grep -c -- '^--- PASS: TestTmuxAttachScript' "$log" || true)"
           if [ "$passed" -lt 10 ]; then
-            printf '::error::expected the 10 real tmux server tests to pass, saw %s\n' "$passed"
+            printf '::error::expected at least 10 real tmux server tests to pass, saw %s\n' "$passed"
             exit 1
           fi
+          # The count cannot prove the clipboard tests ran, so require each by name.
+          for test in \
+            TestTmuxAttachScriptMouseDragCopiesToOuterClipboard \
+            TestTmuxAttachScriptMouseDragWithoutMsSkipsOSC52; do
+            if ! grep -Fq -- "--- PASS: $test " "$log"; then
+              printf '::error::%s did not run and pass\n' "$test"
+              exit 1
+            fi
+          done
 
   race:
     strategy:

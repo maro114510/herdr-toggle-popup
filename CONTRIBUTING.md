@@ -7,7 +7,7 @@ Thanks for improving herdr-toggle-popup. Contributions are accepted under the Ap
 | Tool | Requirement |
 | --- | --- |
 | Go | The version named in [go.mod](./go.mod) |
-| tmux | 2.9 or newer on PATH (the [compatibility minimum](./docs/design/tmux-compatibility.md)) |
+| tmux | 3.4 or newer on PATH (the [compatibility minimum](./docs/design/tmux-compatibility.md)) |
 | Herdr | 0.9.3 or newer for manual checks |
 | git | Any recent version |
 | make | Optional, for the convenience targets |
@@ -51,11 +51,13 @@ CI runs these checks on every pull request.
 
 `gofmt` must print nothing. `go fix` must not modify tracked Go files. `go mod tidy` must not modify `go.mod` or `go.sum`. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
 
-The real tmux server tests skip themselves when tmux is not on `PATH`. CI sets `HERDR_TEST_REQUIRE_TMUX=1`, so a missing tmux fails them instead, and runs them on both versions in the [compatibility record](./docs/design/tmux-compatibility.md).
+The real tmux server tests skip themselves when tmux is missing or older than 3.4. CI sets `HERDR_TEST_REQUIRE_TMUX=1`, so either condition fails them instead, and runs them on both versions in the [compatibility record](./docs/design/tmux-compatibility.md).
 
 ```bash
 HERDR_TEST_REQUIRE_TMUX=1 go test -count=1 -run TestTmuxAttachScript ./internal/popupshell/
 ```
+
+Those tests include the PTY mouse-drag checks, which read back both the tmux buffer and the decoded OSC52 payload. They use `infocmp` from ncurses to confirm the client terminal's `Ms` capability. The final hop into the host clipboard is verified manually with the [macOS smoke test](./docs/smoke-test-clipboard.md).
 
 ### Pinned CI tools
 
@@ -66,7 +68,7 @@ GitHub Actions are pinned to commit SHAs and updated by Dependabot. Tools that C
 | govulncheck | `golang.org/x/vuln/cmd/govulncheck@v1.8.0` |
 | golangci-lint | `version: v2.14.0` |
 | octocov | `version: v0.83.3` |
-| tmux (compatibility minimum) | `2.9`, from the release tarball pinned by SHA-256 in the matrix |
+| tmux (compatibility minimum) | `3.4`, from the release tarball pinned by SHA-256 in the matrix |
 | tmux (compatibility current stable) | `3.8`, from the release tarball pinned by SHA-256 in the matrix |
 
 Dependabot does not manage these, so bump them by hand:
@@ -88,6 +90,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [.github/workflows/](./.github/workflows) | CI and release automation |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
 | [docs/design/tmux-compatibility.md](./docs/design/tmux-compatibility.md) | Minimum tmux version, required capabilities, and compatibility CI targets |
+| [docs/smoke-test-clipboard.md](./docs/smoke-test-clipboard.md) | Manual macOS check that a popup drag reaches the host clipboard |
 
 Add or update tests in the relevant internal package.
 

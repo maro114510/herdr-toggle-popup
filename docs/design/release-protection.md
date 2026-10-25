@@ -21,7 +21,7 @@ These eight `CI` contexts are required on a pull request to the default branch.
 | `shellcheck` | `shellcheck` |
 | `go (ubuntu-latest)` | `go` |
 | `go (macos-latest)` | `go` |
-| `tmux-compat (2.9)` | `tmux-compat` |
+| `tmux-compat (3.4)` | `tmux-compat` |
 | `tmux-compat (3.8)` | `tmux-compat` |
 | `race (ubuntu-latest)` | `race` |
 | `race (macos-latest)` | `race` |
@@ -188,7 +188,7 @@ The `main` ruleset.
           { "context": "shellcheck" },
           { "context": "go (ubuntu-latest)" },
           { "context": "go (macos-latest)" },
-          { "context": "tmux-compat (2.9)" },
+          { "context": "tmux-compat (3.4)" },
           { "context": "tmux-compat (3.8)" },
           { "context": "race (ubuntu-latest)" },
           { "context": "race (macos-latest)" },
@@ -221,7 +221,7 @@ The release-tag ruleset.
           { "context": "shellcheck" },
           { "context": "go (ubuntu-latest)" },
           { "context": "go (macos-latest)" },
-          { "context": "tmux-compat (2.9)" },
+          { "context": "tmux-compat (3.4)" },
           { "context": "tmux-compat (3.8)" },
           { "context": "race (ubuntu-latest)" },
           { "context": "race (macos-latest)" },

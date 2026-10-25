@@ -50,9 +50,11 @@ import (
 // - missing HERDR_SOCKET_PATH: reports a clear error before resolving or execing tmux
 // - missing focused cwd: reports a clear error before execing tmux
 // - missing tab id (tab scope): reports a clear error before execing tmux
+// - tmux version parsing: 3.4 is the floor, letter revisions and development builds are accepted
 //
-// HERDR_TEST_REQUIRE_TMUX=1 turns the real-server skip into a failure, so the compatibility matrix
-// cannot pass without running them.
+// The real-server tests require tmux 3.4 or newer. An older tmux skips them, and
+// HERDR_TEST_REQUIRE_TMUX=1 turns the skip into a failure, so the compatibility matrix cannot pass
+// without running them.
 
 const (
 	configDirEnvVar = "HERDR_PLUGIN_CONFIG_DIR"
@@ -71,6 +73,8 @@ const (
 	tmuxSocketDirVar  = "TMUX_TMPDIR"
 	tmuxClientEnvVar  = "TMUX"
 	requireTmuxEnvVar = "HERDR_TEST_REQUIRE_TMUX"
+	minimumTmuxMajor  = 3
+	minimumTmuxMinor  = 4
 	testSessionName   = "herdr-popup-test"
 	testCloseKey      = "M-l"
 	altCloseKey       = "M-p"
@@ -150,23 +154,50 @@ func captureExec(call *execCall) execFunc {
 	}
 }
 
-// realTmux resolves the tmux binary the real-server tests drive, skipping when it is absent unless
-// requireTmuxEnvVar=1 makes that a failure.
+// realTmux resolves the tmux binary the real-server tests drive. A missing or older tmux skips the
+// test unless requireTmuxEnvVar=1 makes that a failure.
 func realTmux(t *testing.T) string {
 	t.Helper()
 
 	tmuxPath, err := exec.LookPath(tmuxBin)
 	if err != nil {
-		if os.Getenv(requireTmuxEnvVar) == "1" {
-			t.Fatalf("%s=1, but tmux was not found on PATH: %v", requireTmuxEnvVar, err)
-		}
-		t.Skip("tmux not found, skipping real tmux server test")
+		requireTmuxOrSkip(t, "tmux was not found on PATH: %v", err)
+	}
+	//nolint:gosec // tmuxPath comes from exec.LookPath in the test.
+	version, err := exec.Command(tmuxPath, "-V").Output()
+	if err != nil {
+		t.Fatalf("run %s -V: %v", tmuxPath, err)
+	}
+	if !tmuxVersionAtLeast(string(version), minimumTmuxMajor, minimumTmuxMinor) {
+		requireTmuxOrSkip(t, "tmux %q is older than the supported minimum %d.%d",
+			strings.TrimSpace(string(version)), minimumTmuxMajor, minimumTmuxMinor)
 	}
 	return tmuxPath
 }
 
+// requireTmuxOrSkip fails when the compatibility CI requires tmux, and skips otherwise.
+func requireTmuxOrSkip(t *testing.T, format string, args ...any) {
+	t.Helper()
+
+	if os.Getenv(requireTmuxEnvVar) == "1" {
+		t.Fatalf("%s=1, but %s", requireTmuxEnvVar, fmt.Sprintf(format, args...))
+	}
+	t.Skipf("%s; skipping real tmux server test", fmt.Sprintf(format, args...))
+}
+
+// tmuxVersionAtLeast compares the major and minor release in a "tmux X.Y" version string.
+// A development version such as "tmux next-3.4" cannot be compared and is treated as supported.
+func tmuxVersionAtLeast(version string, wantMajor, wantMinor int) bool {
+	var major, minor int
+	if _, err := fmt.Sscanf(version, "tmux %d.%d", &major, &minor); err != nil {
+		return true
+	}
+	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
+}
+
 // isolatedTmuxEnv points tmux at a private socket directory and drops TMUX.
-// The test therefore never touches an ambient server.
+// The test therefore never touches an ambient server. EDITOR and VISUAL are dropped because tmux
+// derives mode-keys from them, and vi copies the cursor cell while emacs drops it.
 func isolatedTmuxEnv(t *testing.T) []string {
 	t.Helper()
 
@@ -181,7 +212,9 @@ func isolatedTmuxEnv(t *testing.T) []string {
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, entry := range os.Environ() {
 		if strings.HasPrefix(entry, tmuxClientEnvVar+"=") ||
-			strings.HasPrefix(entry, tmuxSocketDirVar+"=") {
+			strings.HasPrefix(entry, tmuxSocketDirVar+"=") ||
+			strings.HasPrefix(entry, "EDITOR=") ||
+			strings.HasPrefix(entry, "VISUAL=") {
 			continue
 		}
 		env = append(env, entry)
@@ -438,11 +471,11 @@ func popupSessionField(t *testing.T, env []string, tmuxPath, format string) stri
 }
 
 // waitForPaneText waits until the saved session's pane shows want, which proves the shell ran.
-func waitForPaneText(t *testing.T, env []string, tmuxPath, session, want string) {
+func waitForPaneText(t *testing.T, env []string, tmuxPath, want string) {
 	t.Helper()
 
 	eventually(t, fmt.Sprintf("pane text %q", want), func() (bool, string) {
-		text := dedicatedTmux(t, env, tmuxPath, "capture-pane", "-p", "-t", session)
+		text := dedicatedTmux(t, env, tmuxPath, "capture-pane", "-p", "-t", testSessionName)
 		return strings.Contains(text, want), fmt.Sprintf("pane text = %q", strings.TrimSpace(text))
 	})
 }
@@ -1041,6 +1074,32 @@ func TestRunMalformedConfigPrintsWarningAndUsesDefaults(t *testing.T) {
 	}
 }
 
+// TestTmuxVersionAtLeast rejects the releases before the OSC52 mouse-copy fix and accepts newer
+// releases, including letter revisions and a development version that cannot be parsed.
+func TestTmuxVersionAtLeast(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		version string
+		want    bool
+	}{
+		{"tmux 2.9", false},
+		{"tmux 2.9a", false},
+		{"tmux 3.3a", false},
+		{"tmux 3.4", true},
+		{"tmux 3.4a", true},
+		{"tmux 3.10", true},
+		{"tmux next-3.4", true},
+	} {
+		t.Run(tt.version, func(t *testing.T) {
+			t.Parallel()
+			if got := tmuxVersionAtLeast(tt.version, minimumTmuxMajor, minimumTmuxMinor); got != tt.want {
+				t.Errorf("tmuxVersionAtLeast(%q) = %v, want %v", tt.version, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTmuxSessionKeyTable(t *testing.T) {
 	const cwdOnlyContext = `{"focused_pane_cwd":"/focused/cwd"}`
 
@@ -1291,7 +1350,7 @@ func TestTmuxAttachScriptKeepsOtherClientAndShellWhenOneClientCloses(t *testing.
 	}
 
 	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "printf 'shell-%s\n' 42", "Enter")
-	waitForPaneText(t, env, tmuxPath, testSessionName, "shell-42")
+	waitForPaneText(t, env, tmuxPath, "shell-42")
 }
 
 // TestTmuxAttachScriptResumesShellAfterLastClientCloses closes the only client, then reconnects.
@@ -1310,7 +1369,7 @@ func TestTmuxAttachScriptResumesShellAfterLastClientCloses(t *testing.T) {
 
 	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "export HTP_RESUMED_SHELL=still-here", "Enter")
 	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, "printf 'exported-%s\n' marker", "Enter")
-	waitForPaneText(t, env, tmuxPath, testSessionName, "exported-marker")
+	waitForPaneText(t, env, tmuxPath, "exported-marker")
 
 	client.close(t)
 
@@ -1327,7 +1386,7 @@ func TestTmuxAttachScriptResumesShellAfterLastClientCloses(t *testing.T) {
 
 	startTmuxClient(t, env, tmuxPath, largeClientCols, largeClientRows)
 	dedicatedTmux(t, env, tmuxPath, "send-keys", "-t", testSessionName, `echo "resumed:$HTP_RESUMED_SHELL"`, "Enter")
-	waitForPaneText(t, env, tmuxPath, testSessionName, "resumed:still-here")
+	waitForPaneText(t, env, tmuxPath, "resumed:still-here")
 }
 
 // TestRunAppliesWindowSizePolicyOnEveryConnection keeps the sizing policy off the branch split.
