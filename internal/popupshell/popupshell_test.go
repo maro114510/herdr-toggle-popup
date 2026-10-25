@@ -331,8 +331,8 @@ func TestTmuxAttachScriptKeepsDefaultBindingsOnDedicatedServer(t *testing.T) {
 			t.Errorf("dedicated root key table is missing %q:\n%s", want, keys)
 		}
 	}
-	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName, "@herdr-close-key")); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session close key = %q, want %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, testSessionName); got != testCloseKey {
+		t.Errorf("session close key = %q, want %q", got, testCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 	if got := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-g", "prefix")); got != "prefix C-b" {
@@ -373,10 +373,12 @@ func closeKeyGuardHolds(t *testing.T, env []string, tmuxPath, session, key strin
 	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "display", "-p", "-t", session, format)) == "1"
 }
 
+// sessionCloseKey reads the stored close key. tmux 2.9 quotes a user option value in its default
+// output, so -v is used, which prints it bare on every supported version.
 func sessionCloseKey(t *testing.T, env []string, tmuxPath, session string) string {
 	t.Helper()
 
-	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", session, "@herdr-close-key"))
+	return strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-v", "-t", session, "@herdr-close-key"))
 }
 
 // TestTmuxAttachScriptScopesCloseKeyToItsSession keeps two sessions on independent close keys.
@@ -397,11 +399,11 @@ func TestTmuxAttachScriptScopesCloseKeyToItsSession(t *testing.T) {
 	runAttachScript(t, env, tmuxPath, sessionA, testCloseKey)
 	runAttachScript(t, env, tmuxPath, sessionB, altCloseKey)
 
-	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session A close key = %q, want %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != testCloseKey {
+		t.Errorf("session A close key = %q, want %q", got, testCloseKey)
 	}
-	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != "@herdr-close-key "+altCloseKey {
-		t.Errorf("session B close key = %q, want %q", got, "@herdr-close-key "+altCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != altCloseKey {
+		t.Errorf("session B close key = %q, want %q", got, altCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 	assertCloseKeyBinding(t, env, tmuxPath, altCloseKey)
@@ -450,8 +452,8 @@ func TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen(t *testing.T) {
 
 	runAttachScript(t, env, tmuxPath, sessionA, altCloseKey)
 
-	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != "@herdr-close-key "+altCloseKey {
-		t.Errorf("session A close key after reopen = %q, want %q", got, "@herdr-close-key "+altCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionA); got != altCloseKey {
+		t.Errorf("session A close key after reopen = %q, want %q", got, altCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, altCloseKey)
 	if closeKeyGuardHolds(t, env, tmuxPath, sessionA, testCloseKey) {
@@ -460,8 +462,8 @@ func TestTmuxAttachScriptAppliesChangedCloseKeyOnReopen(t *testing.T) {
 	if !closeKeyGuardHolds(t, env, tmuxPath, sessionA, altCloseKey) {
 		t.Errorf("session A does not own its new key %q", altCloseKey)
 	}
-	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session B close key changed to %q, want it unchanged at %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, sessionB); got != testCloseKey {
+		t.Errorf("session B close key changed to %q, want it unchanged at %q", got, testCloseKey)
 	}
 	if !closeKeyGuardHolds(t, env, tmuxPath, sessionB, testCloseKey) {
 		t.Errorf("session B no longer owns %q after session A changed its key", testCloseKey)
@@ -482,8 +484,8 @@ func TestTmuxAttachScriptFallsBackWhenTmuxRejectsCloseKey(t *testing.T) {
 
 	runAttachScript(t, env, tmuxPath, testSessionName, "Alt-l")
 
-	if got := sessionCloseKey(t, env, tmuxPath, testSessionName); got != "@herdr-close-key "+testCloseKey {
-		t.Errorf("session close key = %q, want the fallback %q", got, "@herdr-close-key "+testCloseKey)
+	if got := sessionCloseKey(t, env, tmuxPath, testSessionName); got != testCloseKey {
+		t.Errorf("session close key = %q, want the fallback %q", got, testCloseKey)
 	}
 	assertCloseKeyBinding(t, env, tmuxPath, testCloseKey)
 }
