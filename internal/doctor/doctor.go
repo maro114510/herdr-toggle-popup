@@ -2,14 +2,21 @@
 package doctor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/maro114510/herdr-toggle-popup/internal/config"
+	"github.com/maro114510/herdr-toggle-popup/internal/popupshell"
 )
 
 const (
@@ -19,10 +26,19 @@ const (
 	stateDirEnvVar       = "HERDR_PLUGIN_STATE_DIR"
 	defaultHerdrBin      = "herdr"
 	tmuxBin              = "tmux"
+	infocmpBin           = "infocmp"
 	manifestFile         = "herdr-plugin.toml"
 	configFile           = "config.toml"
 	stateFile            = "popups.json"
 	supportedStateFormat = 1
+
+	diagnosticCommandTimeout = 3 * time.Second
+
+	statusOK      = "ok"
+	statusWarning = "warning"
+	statusMissing = "missing"
+	statusUnknown = "unknown"
+	unsetValue    = "unset"
 )
 
 type manifest struct {
@@ -51,9 +67,15 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 
 	manifestVersion := diagnosePluginRoot(stdout)
 	diagnoseVersion(stdout, version, manifestVersion)
-	diagnoseExecutable(stdout, "herdr", herdrCandidate())
-	diagnoseExecutable(stdout, "tmux", tmuxBin)
-	diagnoseConfig(stdout)
+	herdrPath := diagnoseExecutable(stdout, "herdr", herdrCandidate())
+	diagnoseToolVersion(stdout, "herdr version", herdrPath, "--version")
+	tmuxPath := diagnoseExecutable(stdout, "tmux", tmuxBin)
+	diagnoseToolVersion(stdout, "tmux version", tmuxPath, "-V")
+	cfg := diagnoseConfig(stdout)
+	diagnoseConnection(stdout, cfg.Scope)
+	term := diagnoseTerminal(stdout)
+	ms := newMsProbe()
+	diagnoseMs(stdout, ms, term)
 	diagnoseState(stdout)
 
 	return 0
@@ -66,20 +88,35 @@ func herdrCandidate() string {
 	return defaultHerdrBin
 }
 
-func diagnoseExecutable(stdout io.Writer, name, candidate string) {
+// diagnoseExecutable reports whether candidate resolves and returns the resolved path.
+func diagnoseExecutable(stdout io.Writer, name, candidate string) string {
 	path, err := exec.LookPath(candidate)
 	if err != nil {
 		_, _ = fmt.Fprintf(stdout, "%s: missing (%s not executable or not on PATH)\n", name, candidateName(candidate))
-		return
+		return ""
 	}
 	_, _ = fmt.Fprintf(stdout, "%s: ok (%s)\n", name, path)
+	return path
 }
 
 func candidateName(candidate string) string {
-	if filepath.Base(candidate) == candidate {
-		return candidate
-	}
 	return filepath.Base(candidate)
+}
+
+// diagnoseToolVersion prints the first line of a tool's version command, so a multi-line or
+// chatty response never breaks the one-line diagnostic format.
+func diagnoseToolVersion(stdout io.Writer, label, path string, args ...string) {
+	if path == "" {
+		_, _ = fmt.Fprintf(stdout, "%s: %s (tool not found)\n", label, statusUnknown)
+		return
+	}
+	out, err := commandOutput(path, args...)
+	if err != nil || out == "" {
+		_, _ = fmt.Fprintf(stdout, "%s: %s (version command failed)\n", label, statusUnknown)
+		return
+	}
+	value := strings.TrimPrefix(strings.TrimPrefix(firstLine(out), "herdr "), "tmux ")
+	_, _ = fmt.Fprintf(stdout, "%s: %s (%s)\n", label, statusOK, sanitizeText(value))
 }
 
 func diagnosePluginRoot(stdout io.Writer) string {
@@ -117,13 +154,27 @@ func diagnoseVersion(stdout io.Writer, binaryVersion, manifestVersion string) {
 	}
 }
 
-func diagnoseConfig(stdout io.Writer) {
+// diagnoseConfig reports the file's status and returns the effective settings the plugin would
+// use, including the documented fallbacks for an absent file or an invalid scope.
+func diagnoseConfig(stdout io.Writer) config.Config {
+	cfg := config.Load()
+	if !config.IsValidScope(cfg.Scope) {
+		_, _ = fmt.Fprintf(stdout, "scope: warning (%s is invalid; using workspace)\n", sanitizeText(cfg.Scope))
+		cfg.Scope = "workspace"
+	}
+
 	dir := os.Getenv(configDirEnvVar)
 	if dir == "" {
 		_, _ = fmt.Fprintf(stdout, "config: missing (%s not set)\n", configDirEnvVar)
-		return
+	} else {
+		diagnoseConfigFile(stdout, dir)
 	}
 
+	_, _ = fmt.Fprintf(stdout, "popup size: width=%s, height=%s\n", cfg.Width, cfg.Height)
+	return cfg
+}
+
+func diagnoseConfigFile(stdout io.Writer, dir string) {
 	path := filepath.Clean(filepath.Join(dir, configFile))
 	//nolint:gosec // path is HERDR_PLUGIN_CONFIG_DIR joined with the fixed configFile name.
 	if _, err := os.Stat(path); err != nil {
@@ -143,7 +194,130 @@ func diagnoseConfig(stdout io.Writer) {
 	if parsed.Scope == "" {
 		parsed.Scope = "workspace"
 	}
-	_, _ = fmt.Fprintf(stdout, "config: ok (scope=%s, popup_size entries=%d)\n", parsed.Scope, len(parsed.PopupSize))
+	_, _ = fmt.Fprintf(stdout, "config: ok (scope=%s, popup_size entries=%d)\n", sanitizeText(parsed.Scope), len(parsed.PopupSize))
+}
+
+// diagnoseConnection reports the namespace, scope, and saved session the plugin would use and
+// returns the session name, or "" when the identity cannot be resolved.
+func diagnoseConnection(stdout io.Writer, scope string) string {
+	identity, err := popupshell.ResolveIdentity(scope, popupshell.DefaultEntrypoint)
+	namespace := identity.Namespace
+	if namespace == "" {
+		namespace = statusUnknown
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(stdout, "connection: %s (namespace=%s, scope=%s, session=unknown; %v)\n",
+			statusWarning, namespace, sanitizeText(scope), err)
+		return ""
+	}
+
+	_, _ = fmt.Fprintf(stdout, "connection: %s (namespace=%s, scope=%s, session=%s, entrypoint=%s)\n",
+		statusOK, identity.Namespace, sanitizeText(scope), identity.Session, popupshell.DefaultEntrypoint)
+	return identity.Session
+}
+
+func diagnoseTerminal(stdout io.Writer) string {
+	term := os.Getenv("TERM")
+	_, _ = fmt.Fprintf(stdout, "terminal: TERM=%s, TERM_PROGRAM=%s\n",
+		displayValue(term), displayValue(os.Getenv("TERM_PROGRAM")))
+	return term
+}
+
+// msResult is the outcome of checking one terminal's Ms terminfo extension.
+type msResult struct {
+	status string
+	detail string
+}
+
+// msProbe checks Ms with infocmp and caches one result per terminal, so a terminal shared by
+// several clients costs one lookup.
+type msProbe struct {
+	path  string
+	cache map[string]msResult
+}
+
+func newMsProbe() *msProbe {
+	probe := &msProbe{path: "", cache: make(map[string]msResult)}
+	if path, err := exec.LookPath(infocmpBin); err == nil {
+		probe.path = path
+	}
+	return probe
+}
+
+func (p *msProbe) check(term string) msResult {
+	if cached, ok := p.cache[term]; ok {
+		return cached
+	}
+	result := p.probe(term)
+	p.cache[term] = result
+	return result
+}
+
+func (p *msProbe) probe(term string) msResult {
+	if term == "" {
+		return msResult{status: statusUnknown, detail: "TERM is not set"}
+	}
+	if p.path == "" {
+		return msResult{status: statusUnknown, detail: "infocmp not found on PATH"}
+	}
+	out, err := commandOutput(p.path, "-x", term)
+	if err != nil {
+		return msResult{status: statusUnknown, detail: "no terminfo for TERM=" + sanitizeText(term)}
+	}
+	for field := range strings.SplitSeq(out, ",") {
+		if strings.HasPrefix(strings.TrimSpace(field), "Ms=") {
+			return msResult{status: statusOK, detail: "TERM=" + sanitizeText(term)}
+		}
+	}
+	return msResult{status: statusMissing, detail: "TERM=" + sanitizeText(term) + " has no Ms; tmux cannot send OSC52 to the outer terminal"}
+}
+
+func diagnoseMs(stdout io.Writer, probe *msProbe, term string) {
+	result := probe.check(term)
+	_, _ = fmt.Fprintf(stdout, "Ms: %s (%s)\n", result.status, result.detail)
+}
+
+// diagnoseTmux reports server presence, the saved session, its effective settings, and client
+// state. Every command it runs reads state; none creates a server, changes an option, or touches a
+// buffer or the clipboard.
+// commandOutput runs a bounded, read-only command and returns its trimmed stdout.
+func commandOutput(path string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), diagnosticCommandTimeout)
+	defer cancel()
+
+	//nolint:gosec // path comes from exec.LookPath for a fixed tool name or the plugin's configured herdr binary.
+	cmd := exec.CommandContext(ctx, path, args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func firstLine(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(line)
+}
+
+// displayValue keeps each reported value on one line and never emits terminal control sequences.
+func displayValue(value string) string {
+	if value == "" {
+		return unsetValue
+	}
+	return sanitizeText(value)
+}
+
+func sanitizeText(value string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return ' '
+		case unicode.IsControl(r):
+			return -1
+		default:
+			return r
+		}
+	}, value)
 }
 
 func diagnoseState(stdout io.Writer) {
