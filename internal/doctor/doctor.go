@@ -43,6 +43,10 @@ const (
 	statusMissing = "missing"
 	statusUnknown = "unknown"
 	unsetValue    = "unset"
+
+	// devVersion is the version a build without -ldflags -X main.version reports, so it names a
+	// development build rather than any release.
+	devVersion = "dev"
 )
 
 type manifest struct {
@@ -149,10 +153,17 @@ func diagnosePluginRoot(stdout io.Writer) string {
 }
 
 func diagnoseVersion(stdout io.Writer, binaryVersion, manifestVersion string) {
+	manifestDisplay := manifestVersion
+	if manifestDisplay == "" {
+		manifestDisplay = statusUnknown
+	}
 	switch {
+	case binaryVersion == devVersion:
+		_, _ = fmt.Fprintf(stdout, "version: ok (binary=%s, manifest=%s; development build)\n",
+			binaryVersion, manifestDisplay)
 	case manifestVersion == "":
 		_, _ = fmt.Fprintf(stdout, "version: ok (binary=%s, manifest=unknown)\n", binaryVersion)
-	case binaryVersion == "dev" || binaryVersion == manifestVersion:
+	case binaryVersion == manifestVersion:
 		_, _ = fmt.Fprintf(stdout, "version: ok (binary=%s, manifest=%s)\n", binaryVersion, manifestVersion)
 	default:
 		_, _ = fmt.Fprintf(stdout, "version: warning (binary=%s, manifest=%s)\n", binaryVersion, manifestVersion)

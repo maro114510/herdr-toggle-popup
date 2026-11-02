@@ -71,20 +71,22 @@ It needs `gh` authentication, `tmux`, and Go. The script records the Herdr versi
 
 ### Pinned CI tools
 
-GitHub Actions are pinned to commit SHAs and updated by Dependabot. Tools that CI runs but that are not Actions are pinned to exact releases in [.github/workflows/ci.yml](./.github/workflows/ci.yml), so an unchanged workflow revision fetches the same binaries:
+GitHub Actions are pinned to commit SHAs and updated by Dependabot. Tools that CI runs but that are not Actions are pinned to exact releases in [.github/workflows/ci.yml](./.github/workflows/ci.yml) and [.github/workflows/release.yml](./.github/workflows/release.yml), so an unchanged workflow revision fetches the same binaries:
 
 | Tool | Pin |
 | --- | --- |
 | govulncheck | `golang.org/x/vuln/cmd/govulncheck@v1.8.0` |
 | golangci-lint | `version: v2.14.0` |
 | octocov | `version: v0.83.3` |
+| syft (release SBOMs) | `1.55.0`, tarball verified by SHA-256 in `release.yml` |
+| CycloneDX CLI (release SBOM validation) | `0.33.1`, binary verified by SHA-256 in `release.yml` |
 | tmux (compatibility minimum) | `3.4`, from the release tarball pinned by SHA-256 in the matrix |
 | tmux (compatibility current stable) | `3.8`, from the release tarball pinned by SHA-256 in the matrix |
 
 Dependabot does not manage these, so bump them by hand:
 
 1. Find the newest release tag for the tool.
-2. Replace its pin in [.github/workflows/ci.yml](./.github/workflows/ci.yml).
+2. Replace its pin, and its SHA-256 when the workflow verifies one, in the workflow that pins it.
 3. Run the tool's check and confirm the version it logs matches the new pin, for example `govulncheck ./...` or `golangci-lint run`.
 
 The workflow file is the source of truth; keep this table in sync when it changes. The tmux pins follow the [update policy](./docs/design/tmux-compatibility.md), which is the source of truth for those versions. Herdr is not in this table: the [Herdr contract](./docs/design/herdr-compatibility.md) takes the minimum from `herdr-plugin.toml` and fetches the stable and preview releases on every run, recording each revision.
@@ -96,6 +98,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [main.go](./main.go) | CLI entry point and command wiring |
 | [internal/](./internal) | Plugin behavior grouped by concern, each package with tests |
 | [scripts/build.sh](./scripts/build.sh) | The Herdr build step |
+| [scripts/generate-sbom.sh](./scripts/generate-sbom.sh) | SBOM generation and validation for the release binaries |
 | [scripts/herdr-contract.sh](./scripts/herdr-contract.sh) | Resolves and runs one Herdr release contract track |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |

@@ -45,6 +45,38 @@ gh attestation verify ./toggle-popup_darwin_arm64 \
 
 `gh attestation verify` recomputes the file digest and rejects an altered binary. Releases published before attestation support have no attestation, so verification fails.
 
+## Inspect the bill of materials
+
+Each release attaches one CycloneDX 1.6 JSON SBOM per distributed binary. [`syft`](https://github.com/anchore/syft), pinned by version and SHA-256 in the [release workflow](./.github/workflows/release.yml), reads the Go build information embedded in the binary, so the listed modules are the ones that binary contains, not what [`go.mod`](./go.mod) requests.
+
+| Target | Binary | SBOM |
+| --- | --- | --- |
+| macOS amd64 | `toggle-popup_darwin_amd64` | `sbom_toggle-popup_darwin_amd64.cdx.json` |
+| macOS arm64 | `toggle-popup_darwin_arm64` | `sbom_toggle-popup_darwin_arm64.cdx.json` |
+| Linux amd64 | `toggle-popup_linux_amd64` | `sbom_toggle-popup_linux_amd64.cdx.json` |
+| Linux arm64 | `toggle-popup_linux_arm64` | `sbom_toggle-popup_linux_arm64.cdx.json` |
+
+List the modules and versions:
+
+```bash
+jq -r '.components[] | select(.type == "library") | "\(.name) \(.version)"' sbom_toggle-popup_darwin_arm64.cdx.json
+```
+
+Compare them with the binary's own record:
+
+```bash
+go version -m ./toggle-popup_darwin_arm64
+```
+
+Validate the document with the [CycloneDX CLI](https://github.com/CycloneDX/cyclonedx-cli), which the release job also runs:
+
+```bash
+cyclonedx validate --input-file sbom_toggle-popup_darwin_arm64.cdx.json \
+  --input-format json --input-version 1.6 --fail-on-errors
+```
+
+The release job fails when an SBOM is missing, cannot be generated, or does not validate, so a published release carries all four.
+
 ## Binding a key
 
 Copy the block from [`keybindings.toml`](./keybindings.toml) into `~/.config/herdr/config.toml`:

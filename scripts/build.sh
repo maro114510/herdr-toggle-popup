@@ -46,10 +46,16 @@ EOF
 
 ensure_tmux
 
+version="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "${MANIFEST}" | head -n 1)"
+if [ -z "${version}" ]; then
+  echo "build.sh: could not read version from ${MANIFEST}" >&2
+  exit 1
+fi
+
 if command -v go >/dev/null 2>&1; then
   echo "build.sh: go found on PATH, building from source"
   mkdir -p "${BIN_DIR}"
-  (cd "${ROOT_DIR}" && CGO_ENABLED=0 go build -trimpath -o "${BIN_PATH}" .)
+  (cd "${ROOT_DIR}" && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=${version}" -o "${BIN_PATH}" .)
   exit 0
 fi
 
@@ -74,12 +80,6 @@ case "${arch_name}" in
     exit 1
     ;;
 esac
-
-version="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "${MANIFEST}" | head -n 1)"
-if [ -z "${version}" ]; then
-  echo "build.sh: could not read version from ${MANIFEST}" >&2
-  exit 1
-fi
 
 tag="v${version}"
 asset_name="toggle-popup_${os}_${arch}"
