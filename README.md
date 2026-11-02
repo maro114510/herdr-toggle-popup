@@ -45,6 +45,32 @@ gh attestation verify ./toggle-popup_darwin_arm64 \
 
 `gh attestation verify` recomputes the file digest and rejects an altered binary. Releases published before attestation support have no attestation, so verification fails.
 
+## Verify a release tag
+
+Every release tag is annotated and signed. Verify the tag before you trust the release notes or the assets attached to them:
+
+```bash
+git fetch --tags origin
+git show origin/main:.github/release-signing-key.asc | gpg --import
+git verify-tag vX.Y.Z
+git merge-base --is-ancestor "$(git rev-parse vX.Y.Z^{commit})" origin/main
+```
+
+| Command | Checks |
+| --- | --- |
+| `gpg --import` | The trusted keys are the ones on `main`, not a key the tag chose. |
+| `git verify-tag` | The tag carries a valid signature from one of those keys. An unsigned tag or a foreign key fails. |
+| `git merge-base --is-ancestor` | The tagged commit is on `main`. |
+
+Compare the signing key fingerprint with the one in the release notes and in [the design record](./docs/design/release-protection.md) out of band, then ask GitHub for its own verdict:
+
+```bash
+tag_sha="$(gh api repos/maro114510/herdr-toggle-popup/git/ref/tags/vX.Y.Z --jq '.object.sha')"
+gh api "repos/maro114510/herdr-toggle-popup/git/tags/${tag_sha}" --jq '.verification.verified'
+```
+
+Releases published before tag signing was enforced carry no signature, so verification fails.
+
 ## Binding a key
 
 Copy the block from [`keybindings.toml`](./keybindings.toml) into `~/.config/herdr/config.toml`:
