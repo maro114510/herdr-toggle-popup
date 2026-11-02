@@ -402,6 +402,34 @@ func TestRun_ConnectedSessionReportsConnectionSettingsAndClipboard(t *testing.T)
 	assertReadOnlyTmuxLog(t, logPath)
 }
 
+// TestRun_DoesNotDiagnoseLegacyRegistryOrResizeConfiguration pins the v0.7.0 removal: doctor still
+// reports the effective native settings but no longer inspects or reports the legacy surface.
+func TestRun_DoesNotDiagnoseLegacyRegistryOrResizeConfiguration(t *testing.T) {
+	setupPopupEnvironment(t, "scope = \"workspace\"\npopup_size.shell = \"right:0.5:3\"\n")
+
+	code, stdout, stderr := runDoctor(t)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	for _, removed := range []string{"state:", "popup_size"} {
+		if strings.Contains(stdout, removed) {
+			t.Errorf("stdout = %q, want it to not report the removed %q diagnosis", stdout, removed)
+		}
+	}
+	for _, kept := range []string{
+		"config: ok (scope=workspace)",
+		"popup size: width=100%, height=100%",
+	} {
+		if !strings.Contains(stdout, kept) {
+			t.Errorf("stdout = %q, want it to still contain %q", stdout, kept)
+		}
+	}
+}
+
 func TestRun_AbsentServerIsReportedWithoutProbingOptionsOrClients(t *testing.T) {
 	logPath := setupPopupEnvironment(t, defaultConfig)
 	t.Setenv("FAKE_TMUX_SERVER", "absent")
