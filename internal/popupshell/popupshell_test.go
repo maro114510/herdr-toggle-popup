@@ -22,6 +22,9 @@ import (
 // - workspace scope: execs tmux with a stable session name derived from the namespace hash,
 //   workspace:<workspace_id>, and <entrypoint>, starting in the focused pane cwd
 // - directory scope: derives the tmux session from namespace:<hash>:directory:<focused cwd>:<entrypoint>
+// - directory scope: the identity is the exact focused cwd string in one namespace, so another
+//   workspace shares the session while a trailing slash, a case change, a symlink alias, or
+//   another namespace does not
 // - tab scope: derives the tmux session from namespace:<hash>:tab:<workspace id>:<focused tab id>:<entrypoint>
 // - namespace: the same scope and entrypoint in different Herdr namespaces yield different sessions
 // - namespace: an unchanged namespace, scope, and entrypoint reuse the saved session name
@@ -1208,6 +1211,94 @@ func TestTmuxSessionKeySeparatesNamespaces(t *testing.T) {
 			}
 			if keyAgain != keyA {
 				t.Errorf("key = %q, want repeats in the same namespace to reproduce %q", keyAgain, keyA)
+			}
+		})
+	}
+}
+
+// directoryScopeSession returns the session name run selects for cwd in workspace under directory
+// scope, with socketPath selecting the Herdr namespace.
+func directoryScopeSession(t *testing.T, socketPath, workspace, cwd string) string {
+	t.Helper()
+
+	t.Setenv(socketPathEnvVar, socketPath)
+	t.Setenv(workspaceIDEnvVar, workspace)
+	t.Setenv(contextEnvVar, fmt.Sprintf(`{"workspace_id":%q,"focused_pane_cwd":%q}`, workspace, cwd))
+
+	var stderr bytes.Buffer
+	var call execCall
+	if code := run([]string{defaultEntrypoint}, &stderr, successfulLookPath(t), captureExec(&call)); code != 0 {
+		t.Fatalf("run for cwd %q in workspace %q: exit code = %d, want 0 (stderr: %s)",
+			cwd, workspace, code, stderr.String())
+	}
+	return call.argv[4]
+}
+
+// TestDirectoryScopeSharesSessionOnlyForTheSameCwdString proves directory scope keys on the exact
+// focused cwd string inside one namespace: another workspace does not split it, and no other
+// spelling of the same directory is normalized into a shared identity.
+//
+//nolint:paralleltest // uses setupEnv and directoryScopeSession, which mutate process env via t.Setenv.
+func TestDirectoryScopeSharesSessionOnlyForTheSameCwdString(t *testing.T) {
+	configDir := setupEnv(t)
+	writeConfig(t, configDir, "scope = \"directory\"\n")
+
+	cwd := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(cwd, alias); err != nil {
+		t.Fatalf("create symlink alias: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		socket    string
+		workspace string
+		cwd       string
+		wantSame  bool
+	}{
+		{
+			name:      "another workspace",
+			socket:    testSocketPath,
+			workspace: "ws2",
+			cwd:       cwd,
+			wantSame:  true,
+		},
+		{
+			name:      "trailing slash",
+			socket:    testSocketPath,
+			workspace: workspaceID,
+			cwd:       cwd + string(os.PathSeparator),
+			wantSame:  false,
+		},
+		{
+			name:      "case change",
+			socket:    testSocketPath,
+			workspace: workspaceID,
+			cwd:       strings.ToUpper(cwd),
+			wantSame:  false,
+		},
+		{
+			name:      "symlink alias",
+			socket:    testSocketPath,
+			workspace: workspaceID,
+			cwd:       alias,
+			wantSame:  false,
+		},
+		{
+			name:      "another namespace",
+			socket:    "/tmp/herdr-other-namespace.sock",
+			workspace: workspaceID,
+			cwd:       cwd,
+			wantSame:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseline := directoryScopeSession(t, testSocketPath, workspaceID, cwd)
+			other := directoryScopeSession(t, tt.socket, tt.workspace, tt.cwd)
+			if gotSame := baseline == other; gotSame != tt.wantSame {
+				t.Errorf("sessions %q and %q share = %v, want %v", baseline, other, gotSame, tt.wantSame)
 			}
 		})
 	}
