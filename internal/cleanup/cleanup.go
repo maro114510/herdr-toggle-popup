@@ -106,19 +106,8 @@ func runList(args []string, stdout, stderr io.Writer) int {
 // runDelete keeps the explicit-selection contract: it validates the whole selection first, so a
 // target the plugin must not touch leaves every other session in place.
 func runDelete(args []string, stdout, stderr io.Writer) int {
-	force := false
-	targets := make([]string, 0, len(args))
-	for _, arg := range args {
-		switch {
-		case arg == "--force":
-			force = true
-		case arg == "" || strings.HasPrefix(arg, "-"):
-			return usageError(stderr)
-		default:
-			targets = append(targets, arg)
-		}
-	}
-	if len(targets) == 0 {
+	force, targets, ok := parseDeleteArgs(args)
+	if !ok {
 		return usageError(stderr)
 	}
 
@@ -127,6 +116,43 @@ func runDelete(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "cleanup: %v\n", err)
 		return 1
 	}
+
+	selected, problems := planDeletion(sessions, targets, force)
+	if len(problems) > 0 {
+		for _, problem := range problems {
+			_, _ = fmt.Fprintf(stderr, "cleanup: %s\n", problem)
+		}
+		return 1
+	}
+
+	deleted, failed := deleteSessions(selected, stderr)
+	_, _ = fmt.Fprintf(stdout, "deleted: %d\n", deleted)
+	if failed {
+		return 1
+	}
+	return 0
+}
+
+// parseDeleteArgs accepts --force anywhere and rejects every other option, so a misspelled flag
+// never turns into a session name.
+func parseDeleteArgs(args []string) (force bool, targets []string, ok bool) {
+	targets = make([]string, 0, len(args))
+	for _, arg := range args {
+		switch {
+		case arg == "--force":
+			force = true
+		case arg == "" || strings.HasPrefix(arg, "-"):
+			return false, nil, false
+		default:
+			targets = append(targets, arg)
+		}
+	}
+	return force, targets, len(targets) > 0
+}
+
+// planDeletion validates every target before anything is deleted. Any problem leaves the plan
+// unusable, so one rejected target cannot delete the rest of the selection.
+func planDeletion(sessions []session, targets []string, force bool) ([]session, []string) {
 	byName := make(map[string]session, len(sessions))
 	for _, s := range sessions {
 		byName[s.name] = s
@@ -143,7 +169,7 @@ func runDelete(args []string, stdout, stderr io.Writer) int {
 
 		s, ok := byName[name]
 		if !ok {
-			problems = append(problems, fmt.Sprintf("%s: no such session", name))
+			problems = append(problems, name+": no such session")
 			continue
 		}
 		if reason := rejectionReason(s); reason != "" {
@@ -157,20 +183,18 @@ func runDelete(args []string, stdout, stderr io.Writer) int {
 		}
 		selected = append(selected, s)
 	}
-	if len(problems) > 0 {
-		for _, problem := range problems {
-			_, _ = fmt.Fprintf(stderr, "cleanup: %s\n", problem)
-		}
-		return 1
-	}
+	return selected, problems
+}
 
+// deleteSessions kills exactly the planned sessions and reports every failure without hiding the
+// ones that did succeed.
+func deleteSessions(selected []session, stderr io.Writer) (deleted int, failed bool) {
 	tmuxPath, err := tmuxExecutable()
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "cleanup: %v\n", err)
-		return 1
+		return 0, true
 	}
-	deleted := 0
-	failed := false
+
 	for _, s := range selected {
 		_, killStderr, killErr := tmuxCommand(tmuxPath, "kill-session", "-t", "="+s.name)
 		if killErr != nil {
@@ -184,12 +208,7 @@ func runDelete(args []string, stdout, stderr io.Writer) int {
 		}
 		deleted++
 	}
-
-	_, _ = fmt.Fprintf(stdout, "deleted: %d\n", deleted)
-	if failed {
-		return 1
-	}
-	return 0
+	return deleted, failed
 }
 
 // rejectionReason explains why a target is not deletable, or returns "" when it is.
@@ -198,13 +217,13 @@ func rejectionReason(s session) string {
 	case ownershipManaged:
 		return ""
 	case ownershipNonPlugin:
-		return fmt.Sprintf("%s: not a plugin session", s.name)
+		return s.name + ": not a plugin session"
 	case ownershipLegacy:
-		return fmt.Sprintf("%s: legacy session without an ownership marker", s.name)
+		return s.name + ": legacy session without an ownership marker"
 	case ownershipOther:
-		return fmt.Sprintf("%s: ownership is unknown", s.name)
+		return s.name + ": ownership is unknown"
 	}
-	return fmt.Sprintf("%s: ownership is unknown", s.name)
+	return s.name + ": ownership is unknown"
 }
 
 func clientCount(n int) string {

@@ -40,6 +40,7 @@ const (
 	otherOwned      = "herdr-toggle-popup-dddd"
 	nonPlugin       = "unrelated-session"
 	ownerValue      = "maro114510.toggle-popup"
+	deletedOutput   = "deleted: 1\n"
 	otherOwnerValue = "another.plugin"
 
 	clientTimeout  = 5 * time.Second
@@ -133,7 +134,6 @@ func assertOnlyReadOnlyTmuxCalls(t *testing.T, logPath string) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_ListReportsManagedCandidatesWithClientState(t *testing.T) {
 	logPath, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", allSessions())
@@ -159,7 +159,6 @@ func TestRun_ListReportsManagedCandidatesWithClientState(t *testing.T) {
 	assertOnlyReadOnlyTmuxCalls(t, logPath)
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_ListReportsAnAbsentServerAsEmpty(t *testing.T) {
 	logPath, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SERVER", "absent")
@@ -178,7 +177,6 @@ func TestRun_ListReportsAnAbsentServerAsEmpty(t *testing.T) {
 	assertOnlyReadOnlyTmuxCalls(t, logPath)
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_ListDoesNotDeleteDetachedSessions(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	// A detached session with no clients is still only a candidate: nothing about its age or its
@@ -198,7 +196,6 @@ func TestRun_ListDoesNotDeleteDetachedSessions(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_DeleteRemovesOnlyTheNamedManagedSessions(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", allSessions())
@@ -211,15 +208,14 @@ func TestRun_DeleteRemovesOnlyTheNamedManagedSessions(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty", stderr)
 	}
-	if want := "deleted: 1\n"; stdout != want {
-		t.Errorf("stdout = %q, want %q", stdout, want)
+	if stdout != deletedOutput {
+		t.Errorf("stdout = %q, want %q", stdout, deletedOutput)
 	}
 	if want := "=" + managedDetached + "\n"; readOptionalFile(t, killedPath) != want {
 		t.Errorf("kill-session targets = %q, want %q", readOptionalFile(t, killedPath), want)
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_DeleteRejectsANonPluginSession(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", sessionLine(nonPlugin, 0, ownerValue))
@@ -237,7 +233,6 @@ func TestRun_DeleteRejectsANonPluginSession(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_DeleteRejectsALegacySession(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", sessionLine(legacySession, 0, ""))
@@ -255,7 +250,6 @@ func TestRun_DeleteRejectsALegacySession(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_DeleteRejectsASessionOwnedByAnotherPlugin(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", sessionLine(otherOwned, 0, otherOwnerValue))
@@ -273,7 +267,6 @@ func TestRun_DeleteRejectsASessionOwnedByAnotherPlugin(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_DeleteRefusesAnAttachedSessionWithoutForce(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", sessionLine(managedAttached, 2, ownerValue))
@@ -291,7 +284,6 @@ func TestRun_DeleteRefusesAnAttachedSessionWithoutForce(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_DeleteForceRemovesAnAttachedSession(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", sessionLine(managedAttached, 2, ownerValue))
@@ -301,15 +293,14 @@ func TestRun_DeleteForceRemovesAnAttachedSession(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
 	}
-	if want := "deleted: 1\n"; stdout != want {
-		t.Errorf("stdout = %q, want %q", stdout, want)
+	if stdout != deletedOutput {
+		t.Errorf("stdout = %q, want %q", stdout, deletedOutput)
 	}
 	if want := "=" + managedAttached + "\n"; readOptionalFile(t, killedPath) != want {
 		t.Errorf("kill-session targets = %q, want %q", readOptionalFile(t, killedPath), want)
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
 func TestRun_DeleteValidatesEveryTargetBeforeDeletingAny(t *testing.T) {
 	_, killedPath := setupFakeTmux(t)
 	t.Setenv("FAKE_TMUX_SESSIONS", allSessions())
@@ -330,7 +321,7 @@ func TestRun_DeleteValidatesEveryTargetBeforeDeletingAny(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
+//nolint:paralleltest // The test changes the process-wide environment through its setup helper.
 func TestRun_DeleteRequiresAtLeastOneTarget(t *testing.T) {
 	logPath, _ := setupFakeTmux(t)
 
@@ -347,7 +338,7 @@ func TestRun_DeleteRequiresAtLeastOneTarget(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the fake tmux process-wide.
+//nolint:paralleltest // The test changes the process-wide environment through its setup helper.
 func TestRun_UnknownActionIsRejected(t *testing.T) {
 	logPath, _ := setupFakeTmux(t)
 
@@ -391,6 +382,7 @@ func setupRealServer(t *testing.T, tmuxPath string) string {
 	t.Setenv("TMUX", "")
 	t.Setenv("PATH", filepath.Dir(tmuxPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Cleanup(func() {
+		//nolint:gosec // The test controls the tmux binary and every argument.
 		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", "/dev/null", "kill-server").Run()
 	})
 	return filepath.Join(socketDir, "tmux-"+strconv.Itoa(os.Getuid()), popupshell.SocketName)
@@ -426,7 +418,7 @@ func sessionExists(t *testing.T, tmuxPath, name string) bool {
 	return cmd.Run() == nil
 }
 
-//nolint:paralleltest // The test installs PATH and the tmux socket directory process-wide.
+//nolint:paralleltest // The test changes the process-wide environment through its setup helper.
 func TestRun_RealServerListDoesNotStartAnAbsentServer(t *testing.T) {
 	tmuxPath := realTmux(t)
 	socketPath := setupRealServer(t, tmuxPath)
@@ -444,7 +436,7 @@ func TestRun_RealServerListDoesNotStartAnAbsentServer(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the tmux socket directory process-wide.
+//nolint:paralleltest // The test changes the process-wide environment through its setup helper.
 func TestRun_RealServerDeleteRemovesOnlyTheSelectedManagedSession(t *testing.T) {
 	tmuxPath := realTmux(t)
 	setupRealServer(t, tmuxPath)
@@ -460,8 +452,8 @@ func TestRun_RealServerDeleteRemovesOnlyTheSelectedManagedSession(t *testing.T) 
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
 	}
-	if want := "deleted: 1\n"; stdout != want {
-		t.Errorf("stdout = %q, want %q", stdout, want)
+	if stdout != deletedOutput {
+		t.Errorf("stdout = %q, want %q", stdout, deletedOutput)
 	}
 	if sessionExists(t, tmuxPath, managedDetached) {
 		t.Errorf("session %q still exists, want it deleted", managedDetached)
@@ -473,7 +465,7 @@ func TestRun_RealServerDeleteRemovesOnlyTheSelectedManagedSession(t *testing.T) 
 	}
 }
 
-//nolint:paralleltest // The test installs PATH and the tmux socket directory process-wide.
+//nolint:paralleltest // The test changes the process-wide environment through its setup helper.
 func TestRun_RealServerDeleteRefusesAnAttachedSession(t *testing.T) {
 	tmuxPath := realTmux(t)
 	setupRealServer(t, tmuxPath)
