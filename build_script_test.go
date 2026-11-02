@@ -25,6 +25,8 @@ const (
 // - missing tmux never invokes package managers even when they are on PATH
 // - tmux present keeps the Go source-build path usable
 // - tmux present keeps the prebuilt download path and checksum verification usable
+// - a source build embeds the manifest version through ldflags
+// - a source build fails when the manifest version cannot be read
 
 //nolint:paralleltest // build.sh tests execute from the package root and may touch shared ./bin.
 func TestBuildScriptMissingTmuxDoesNotInvokePackageManagers(t *testing.T) {
@@ -72,7 +74,7 @@ func TestBuildScriptSourceBuildPathStillWorksWhenTmuxExists(t *testing.T) {
 		_ = os.Remove(binPath)
 	})
 
-	pathDir := newToolPath(t, []string{toolCat, toolDirname, "mkdir", toolPwd})
+	pathDir := newToolPath(t, []string{toolCat, toolDirname, "head", "mkdir", toolPwd, "sed"})
 	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
 	writeFakeTool(t, pathDir, "go", `#!/bin/sh
 out=""
@@ -96,6 +98,92 @@ printf '%s\n' fake-go-binary > "$out"
 	if got := readFile(t, binPath); got != "fake-go-binary\n" {
 		t.Fatalf("%s = %q, want fake go output", binPath, got)
 	}
+}
+
+//nolint:paralleltest // build.sh tests execute from the package root and may touch shared ./bin.
+func TestBuildScriptSourceBuildEmbedsManifestVersion(t *testing.T) {
+	root := stageBuildScript(t, "version = \"9.9.9\"\n")
+	argsLog := filepath.Join(t.TempDir(), "go.args")
+
+	pathDir := newToolPath(t, []string{toolCat, toolDirname, "head", "mkdir", toolPwd, "sed"})
+	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
+	writeFakeTool(t, pathDir, "go", `#!/bin/sh
+printf '%s\n' "$*" >> "$GO_ARGS_LOG"
+out=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    shift
+    out="$1"
+  fi
+  shift
+done
+test -n "$out"
+printf '%s\n' fake-go-binary > "$out"
+`)
+
+	cmd := exec.Command("sh", filepath.Join(root, "scripts", "build.sh"))
+	cmd.Env = append(os.Environ(), "PATH="+pathDir, "GO_ARGS_LOG="+argsLog)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build.sh failed: %v\n%s", err, output)
+	}
+	if got := readFile(t, argsLog); !strings.Contains(got, "-X main.version=9.9.9") {
+		t.Fatalf("go args = %q, want it to embed the manifest version through ldflags", got)
+	}
+}
+
+//nolint:paralleltest // build.sh tests execute from the package root and may touch shared ./bin.
+func TestBuildScriptSourceBuildFailsWhenManifestVersionIsUnreadable(t *testing.T) {
+	root := stageBuildScript(t, "id = \"maro114510.toggle-popup\"\n")
+	goLog := filepath.Join(t.TempDir(), "go.args")
+
+	pathDir := newToolPath(t, []string{toolCat, toolDirname, "head", "mkdir", toolPwd, "sed"})
+	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
+	writeFakeTool(t, pathDir, "go", `#!/bin/sh
+printf '%s\n' "$*" >> "$GO_ARGS_LOG"
+exit 0
+`)
+
+	cmd := exec.Command("sh", filepath.Join(root, "scripts", "build.sh"))
+	cmd.Env = append(os.Environ(), "PATH="+pathDir, "GO_ARGS_LOG="+goLog)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("build.sh succeeded without a manifest version; want failure")
+	}
+	if got := stderr.String(); !strings.Contains(got, "could not read version") {
+		t.Fatalf("stderr = %q, want it to report the unreadable manifest version", got)
+	}
+	if _, statErr := os.Stat(goLog); !os.IsNotExist(statErr) {
+		t.Fatalf("go build ran without a manifest version; calls = %q", readFile(t, goLog))
+	}
+}
+
+// stageBuildScript copies scripts/build.sh into a fixture tree, so a test can set the manifest
+// version without touching the repository's own herdr-plugin.toml.
+func stageBuildScript(t *testing.T, manifest string) string {
+	t.Helper()
+
+	root := t.TempDir()
+	scriptDir := filepath.Join(root, "scripts")
+	//nolint:gosec // Fixture directory is created under t.TempDir.
+	if err := os.MkdirAll(scriptDir, 0o750); err != nil {
+		t.Fatalf("create fixture scripts dir: %v", err)
+	}
+	script, err := os.ReadFile("scripts/build.sh")
+	if err != nil {
+		t.Fatalf("read scripts/build.sh: %v", err)
+	}
+	//nolint:gosec // Fixture script must be executable by the subprocess under test.
+	if err := os.WriteFile(filepath.Join(scriptDir, "build.sh"), script, 0o755); err != nil {
+		t.Fatalf("write fixture build.sh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "herdr-plugin.toml"), []byte(manifest), 0o600); err != nil {
+		t.Fatalf("write fixture herdr-plugin.toml: %v", err)
+	}
+	return root
 }
 
 //nolint:paralleltest // build.sh writes ./bin/toggle-popup, so these tests must stay serialized.
