@@ -6,7 +6,8 @@
 # Both passes build darwin/amd64, darwin/arm64, linux/amd64, and linux/arm64 with the flags
 # the release workflow uses, from two copies of the source at different paths, each with its
 # own empty GOCACHE. -trimpath keeps the copy path out of the binary, so equal digests show
-# the output depends only on the source, the toolchain, and these flags.
+# the output depends only on the source, the toolchain, and these flags. The toolchain is
+# fixed by the toolchain directive in go.mod, which setup-go reads through go-version-file.
 set -eu
 
 RELEASE_TARGETS="darwin/amd64 darwin/arm64 linux/amd64 linux/arm64"
@@ -29,9 +30,7 @@ for tool in awk cp dirname mkdir mktemp; do
   fi
 done
 
-if command -v go >/dev/null 2>&1; then
-  :
-else
+if ! command -v go >/dev/null 2>&1; then
   echo "verify-reproducible-build.sh: go is required on PATH" >&2
   exit 1
 fi
