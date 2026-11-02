@@ -75,6 +75,34 @@ jobs:
           set -eu
           ./dist/toggle-popup_linux_amd64 version
 
+      # Both tools are fetched by version and verified against their published SHA-256,
+      # because an installer script would resolve to whatever it points at that day.
+      - name: Install pinned SBOM tools
+        env:
+          SYFT_VERSION: 1.55.0
+          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+          CYCLONEDX_CLI_VERSION: 0.33.1
+          CYCLONEDX_CLI_SHA256: bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746
+        run: |
+          set -eu
+          tools="${RUNNER_TEMP}/sbom-tools"
+          mkdir -p "${tools}"
+          curl -fsSL --retry 3 -o "${tools}/syft.tar.gz" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "${SYFT_SHA256}" "${tools}/syft.tar.gz" | sha256sum -c -
+          tar xzf "${tools}/syft.tar.gz" -C "${tools}" syft
+          curl -fsSL --retry 3 -o "${tools}/cyclonedx" \
+            "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v${CYCLONEDX_CLI_VERSION}/cyclonedx-linux-x64"
+          printf '%s  %s\n' "${CYCLONEDX_CLI_SHA256}" "${tools}/cyclonedx" | sha256sum -c -
+          chmod +x "${tools}/cyclonedx"
+          printf '%s\n' "${tools}" >> "${GITHUB_PATH}"
+
+      # A failed generation or validation must stop the run before the release is published.
+      - name: Generate and validate SBOMs
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: sh scripts/generate-sbom.sh dist "${TAG_NAME#v}"
+
       - name: Generate checksums
         run: |
           set -eu
@@ -96,4 +124,8 @@ jobs:
             dist/toggle-popup_darwin_arm64 \
             dist/toggle-popup_linux_amd64 \
             dist/toggle-popup_linux_arm64 \
+            dist/sbom_toggle-popup_darwin_amd64.cdx.json \
+            dist/sbom_toggle-popup_darwin_arm64.cdx.json \
+            dist/sbom_toggle-popup_linux_amd64.cdx.json \
+            dist/sbom_toggle-popup_linux_arm64.cdx.json \
             dist/checksums.txt
