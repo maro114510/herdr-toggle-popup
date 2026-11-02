@@ -43,6 +43,8 @@ import (
 // - real tmux server: reconnecting after the last client closes resumes the shell
 // - real tmux server: new session only on the dedicated server
 // - real tmux server: reopening reuses the dedicated session
+// - real tmux server: a new session carries the plugin ownership marker
+// - real tmux server: an existing session without the ownership marker is not adopted
 // - real tmux server: legacy sessions on both servers are not removed
 // - real tmux server: a same-name default-server session is not attached to
 // - $SHELL unset: defaults the tmux command to /bin/zsh
@@ -515,8 +517,44 @@ func TestTmuxAttachScriptCreatesNewSessionOnlyOnDedicatedServer(t *testing.T) {
 	}
 }
 
-// TestTmuxAttachScriptLeavesLegacySessionsUntouched covers the pre-namespace identities: a legacy
-// session may sit on either the dedicated server (created after the dedicated-server migration) or
+// TestTmuxAttachScriptMarksNewSessionAsPluginOwned proves a session the plugin creates is
+// identifiable, so explicit cleanup can select it and never guess the ownership of anything else.
+func TestTmuxAttachScriptMarksNewSessionAsPluginOwned(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+
+	options := dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName)
+	if want := "@herdr-toggle-popup-owner maro114510.toggle-popup"; !strings.Contains(options, want) {
+		t.Errorf("session options = %q, want them to contain %q", options, want)
+	}
+}
+
+// TestTmuxAttachScriptDoesNotAdoptExistingSessionWithoutOwnerMarker guards the ownership rule for
+// sessions that predate the marker: attaching to one resumes its shell but must not claim it for
+// cleanup, because the plugin cannot establish that it created it.
+func TestTmuxAttachScriptDoesNotAdoptExistingSessionWithoutOwnerMarker(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+
+	runTmux(t, env, tmuxPath, "-L", popupSocketName, "-f", "/dev/null", "new-session", "-d", "-s", testSessionName, "-c", t.TempDir(), "/bin/sh")
+
+	runAttachScript(t, env, tmuxPath, testSessionName, testCloseKey)
+
+	options := dedicatedTmux(t, env, tmuxPath, "show-options", "-t", testSessionName)
+	if strings.Contains(options, "@herdr-toggle-popup-owner") {
+		t.Errorf("session options = %q, want no ownership marker on an existing unmarked session", options)
+	}
+}
+
+// TestTmuxAttachScriptLeavesLegacySessionsUntouched covers the pre-namespace identities: a legacy// session may sit on either the dedicated server (created after the dedicated-server migration) or
 // the default server (created before it). Neither may be removed once identity includes the Herdr
 // namespace, and the target namespace opens its own dedicated session.
 func TestTmuxAttachScriptLeavesLegacySessionsUntouched(t *testing.T) {
