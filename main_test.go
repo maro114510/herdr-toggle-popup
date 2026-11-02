@@ -191,3 +191,45 @@ func TestRun_DoctorDispatchesToDoctorSubcommand(t *testing.T) {
 		t.Errorf("stdout = %q, want doctor output", stdout.String())
 	}
 }
+
+// Native popups emit no pane lifecycle events and keep no registry, so the legacy overlay event
+// handlers and gc were removed with the overlay surface (#148). Their names must be rejected as
+// unknown commands instead of reaching a subcommand that no longer exists.
+func TestRun_RemovedLegacySubcommandsAreRejectedAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	for _, removed := range [...]string{"on-pane-closed", "on-tab-focused", "gc"} {
+		t.Run(removed, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout, stderr bytes.Buffer
+
+			code := run([]string{removed}, &stdout, &stderr)
+
+			if code == 0 {
+				t.Errorf("exit code = 0, want non-zero for the removed command %q", removed)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "unknown command") {
+				t.Errorf("stderr = %q, want it to report an unknown command", stderr.String())
+			}
+		})
+	}
+}
+
+// Usage lists the commands a caller can run, so it must never name one that was removed.
+func TestRun_UsageOmitsRemovedLegacySubcommands(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	run(nil, &stdout, &stderr)
+
+	for _, removed := range [...]string{"on-pane-closed", "on-tab-focused", "gc"} {
+		if strings.Contains(stderr.String(), removed) {
+			t.Errorf("usage = %q, want it to not name the removed command %q", stderr.String(), removed)
+		}
+	}
+}
