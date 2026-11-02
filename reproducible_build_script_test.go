@@ -100,19 +100,35 @@ func TestReproducibleBuildScriptBuildsEachTargetTwiceFromDifferentPaths(t *testi
 
 	calls := parseReproducibleBuildCalls(t, readFile(t, logPath))
 
-	wantTargets := map[string]int{
-		"darwin/amd64": 0,
-		"darwin/arm64": 0,
-		"linux/amd64":  0,
-		"linux/arm64":  0,
-	}
-	sourcePaths := map[string]bool{}
-	caches := map[string]bool{}
-	for _, call := range calls {
-		wantTargets[call.goos+"/"+call.goarch]++
-		sourcePaths[call.pwd] = true
-		caches[call.gocache] = true
+	assertEveryReleaseTargetBuiltTwice(t, calls)
+	assertFixedBuildInputs(t, calls)
+	assertIndependentBuilds(t, calls)
+}
 
+// assertEveryReleaseTargetBuiltTwice checks that each release target has two builds in the log.
+func assertEveryReleaseTargetBuiltTwice(t *testing.T, calls []reproducibleBuildCall) {
+	t.Helper()
+
+	counts := map[string]int{}
+	for _, call := range calls {
+		counts[call.goos+"/"+call.goarch]++
+	}
+	wantTargets := []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "linux/arm64"}
+	for _, target := range wantTargets {
+		if counts[target] != 2 {
+			t.Errorf("%s built %d times, want 2 independent builds", target, counts[target])
+		}
+	}
+	if total := len(calls); total != len(wantTargets)*2 {
+		t.Errorf("go build invocations = %d, want %d", total, len(wantTargets)*2)
+	}
+}
+
+// assertFixedBuildInputs checks the flags every recorded build ran with.
+func assertFixedBuildInputs(t *testing.T, calls []reproducibleBuildCall) {
+	t.Helper()
+
+	for _, call := range calls {
 		if call.cgo != "0" {
 			t.Errorf("CGO_ENABLED = %q, want 0", call.cgo)
 		}
@@ -123,14 +139,17 @@ func TestReproducibleBuildScriptBuildsEachTargetTwiceFromDifferentPaths(t *testi
 			t.Errorf("build args = %q, want it to embed version %s", call.args, reproducibleVersion)
 		}
 	}
+}
 
-	for target, count := range wantTargets {
-		if count != 2 {
-			t.Errorf("%s built %d times, want 2 independent builds", target, count)
-		}
-	}
-	if total := len(calls); total != len(wantTargets)*2 {
-		t.Errorf("go build invocations = %d, want %d", total, len(wantTargets)*2)
+// assertIndependentBuilds checks the log holds two source paths with a separate GOCACHE each.
+func assertIndependentBuilds(t *testing.T, calls []reproducibleBuildCall) {
+	t.Helper()
+
+	sourcePaths := map[string]bool{}
+	caches := map[string]bool{}
+	for _, call := range calls {
+		sourcePaths[call.pwd] = true
+		caches[call.gocache] = true
 	}
 	if len(sourcePaths) != 2 {
 		t.Errorf("source paths = %v, want two different builds", sourcePaths)
@@ -382,28 +401,33 @@ func parseReproducibleBuildCalls(t *testing.T, log string) []reproducibleBuildCa
 		if !ok {
 			t.Fatalf("unexpected fake go log line: %q", line)
 		}
-		call := reproducibleBuildCall{args: args}
+		call := reproducibleBuildCall{pwd: "", gocache: "", goos: "", goarch: "", cgo: "", args: args}
 		for field := range strings.FieldsSeq(head) {
 			key, value, ok := strings.Cut(field, "=")
 			if !ok {
 				t.Fatalf("unexpected fake go log field: %q", field)
 			}
-			switch key {
-			case "pwd":
-				call.pwd = value
-			case "gocache":
-				call.gocache = value
-			case "goos":
-				call.goos = value
-			case "goarch":
-				call.goarch = value
-			case "cgo":
-				call.cgo = value
-			}
+			setReproducibleBuildField(&call, key, value)
 		}
 		calls = append(calls, call)
 	}
 	return calls
+}
+
+// setReproducibleBuildField copies one key=value pair from the fake go log onto call.
+func setReproducibleBuildField(call *reproducibleBuildCall, key, value string) {
+	switch key {
+	case "pwd":
+		call.pwd = value
+	case "gocache":
+		call.gocache = value
+	case "goos":
+		call.goos = value
+	case "goarch":
+		call.goarch = value
+	case "cgo":
+		call.cgo = value
+	}
 }
 
 // manifestVersion reads the version the release workflow embeds from herdr-plugin.toml.
