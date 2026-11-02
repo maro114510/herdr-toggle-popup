@@ -78,7 +78,7 @@ func TestRun_UsageOmitsRemovedLegacySubcommands(t *testing.T) {
 			t.Errorf("usage = %q, want it to not mention the removed %q command", stderr.String(), removed)
 		}
 	}
-	for _, kept := range []string{"toggle", "popup-shell", "doctor", "version"} {
+	for _, kept := range []string{cmdToggle, cmdPopupShell, cmdDoctor, cmdVersion} {
 		if !strings.Contains(stderr.String(), kept) {
 			t.Errorf("usage = %q, want it to mention %q", stderr.String(), kept)
 		}
@@ -108,6 +108,7 @@ func TestRun_RejectsRemovedLegacySubcommands(t *testing.T) {
 	t.Setenv("HERDR_PANE_ID", "pane-1")
 	t.Setenv("HERDR_TAB_ID", "tab-1")
 
+	//nolint:paralleltest // t.Setenv above is not parallel-safe.
 	for _, command := range []string{"gc", "on-pane-closed", "on-tab-focused"} {
 		t.Run(command, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

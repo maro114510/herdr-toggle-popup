@@ -48,14 +48,13 @@ func writeExecutable(t *testing.T, dir, name string) string {
 	return path
 }
 
-func writeFile(t *testing.T, dir, name, content string) string {
+func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return path
 }
 
 func runDoctor(t *testing.T) (int, string, string) {
@@ -373,6 +372,8 @@ func TestRun_ConnectedSessionReportsConnectionSettingsAndClipboard(t *testing.T)
 
 // TestRun_DoesNotDiagnoseLegacyRegistryOrResizeConfiguration pins the v0.7.0 removal: doctor still
 // reports the effective native settings but no longer inspects or reports the legacy surface.
+//
+//nolint:paralleltest // setupPopupEnvironment installs the plugin environment process-wide.
 func TestRun_DoesNotDiagnoseLegacyRegistryOrResizeConfiguration(t *testing.T) {
 	setupPopupEnvironment(t, "scope = \"workspace\"\npopup_size.shell = \"right:0.5:3\"\n")
 

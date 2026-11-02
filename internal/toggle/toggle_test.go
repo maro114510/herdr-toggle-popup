@@ -194,6 +194,7 @@ func TestRunIgnoresLegacyRegistryAndPreservesItsFile(t *testing.T) {
 	if got := readLog(t, logPath); got != fullScreenPopupArgv {
 		t.Errorf("herdr calls = %q, want only the native popup open %q", got, fullScreenPopupArgv)
 	}
+	//nolint:gosec // statePath is created by this test under t.TempDir.
 	got, err := os.ReadFile(statePath)
 	if err != nil {
 		t.Fatalf("legacy registry was deleted: %v", err)
