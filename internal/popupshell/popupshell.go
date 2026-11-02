@@ -22,6 +22,14 @@ const (
 	SocketName = "herdr-toggle-popup"
 	// CloseKeyOption is the session option that records the key closing that session.
 	CloseKeyOption = "@herdr-close-key"
+	// OwnerOption is the session option that records which plugin created the session. Cleanup
+	// treats a session without it, or with another value, as unowned and never selects it.
+	OwnerOption = "@herdr-toggle-popup-owner"
+	// OwnerValue is the plugin ID recorded in OwnerOption.
+	OwnerValue = "maro114510.toggle-popup"
+	// SessionPrefix is the name prefix shared by sessions this plugin creates. It alone does not
+	// establish ownership: pre-namespace sessions use it too.
+	SessionPrefix = "herdr-toggle-popup-"
 	// DefaultEntrypoint is the manifest's popup entrypoint.
 	DefaultEntrypoint = "shell"
 
@@ -34,7 +42,6 @@ const (
 	scopeTab           = "tab"
 	workspaceIDEnvVar  = "HERDR_WORKSPACE_ID"
 	socketPathEnvVar   = "HERDR_SOCKET_PATH"
-	sessionPrefix      = "herdr-toggle-popup-"
 	namespaceHashBytes = 16
 	sessionHashBytes   = 16
 )
@@ -73,12 +80,15 @@ func ResolveIdentity(scopeMode, entrypoint string) (SessionIdentity, error) {
 // The key and binding are reapplied on every connection, so a change applies on the next open.
 // The window size is explicitly the smallest attached client's, because the default policy differs
 // between supported tmux versions; it is reapplied on every connection to correct any drift.
+// The ownership marker is set only when the session is created: a session that already exists
+// without it predates the marker and must not be adopted by a later attach.
 // Legacy sessions without the namespace are never attached to or removed.
 const tmuxAttachScript = `if "$4" -L herdr-toggle-popup -f /dev/null has-session -t "$1" 2>/dev/null; then
   "$4" -L herdr-toggle-popup -f /dev/null set-option -s set-clipboard external
 else
   "$4" -L herdr-toggle-popup -f /dev/null new-session -d -s "$1" -c "$2" "$3"
   "$4" -L herdr-toggle-popup -f /dev/null set-option -s set-clipboard external
+  "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" ` + OwnerOption + ` ` + OwnerValue + `
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" status off
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" mouse on
 fi
@@ -216,5 +226,5 @@ func namespaceForSocketPath(socketPath string) string {
 
 func sessionName(key string) string {
 	sum := sha256.Sum256([]byte(key))
-	return sessionPrefix + hex.EncodeToString(sum[:sessionHashBytes])
+	return SessionPrefix + hex.EncodeToString(sum[:sessionHashBytes])
 }
