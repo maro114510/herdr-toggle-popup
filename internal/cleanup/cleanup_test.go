@@ -36,6 +36,7 @@ import (
 const (
 	managedDetached = "herdr-toggle-popup-aaaa"
 	managedAttached = "herdr-toggle-popup-bbbb"
+	managedSibling  = "herdr-toggle-popup-eeee"
 	legacySession   = "herdr-toggle-popup-cccc"
 	otherOwned      = "herdr-toggle-popup-dddd"
 	nonPlugin       = "unrelated-session"
@@ -442,7 +443,8 @@ func TestRun_RealServerDeleteRemovesOnlyTheSelectedManagedSession(t *testing.T) 
 	setupRealServer(t, tmuxPath)
 
 	createSession(t, tmuxPath, managedDetached, ownerValue)
-	createSession(t, tmuxPath, managedAttached, ownerValue)
+	// managedSibling has no clients: its absence of clients must not make it a deletion target.
+	createSession(t, tmuxPath, managedSibling, ownerValue)
 	createSession(t, tmuxPath, legacySession, "")
 	createSession(t, tmuxPath, otherOwned, otherOwnerValue)
 	createSession(t, tmuxPath, nonPlugin, "")
@@ -458,7 +460,7 @@ func TestRun_RealServerDeleteRemovesOnlyTheSelectedManagedSession(t *testing.T) 
 	if sessionExists(t, tmuxPath, managedDetached) {
 		t.Errorf("session %q still exists, want it deleted", managedDetached)
 	}
-	for _, keep := range []string{managedAttached, legacySession, otherOwned, nonPlugin} {
+	for _, keep := range []string{managedSibling, legacySession, otherOwned, nonPlugin} {
 		if !sessionExists(t, tmuxPath, keep) {
 			t.Errorf("session %q was removed, want it kept", keep)
 		}
