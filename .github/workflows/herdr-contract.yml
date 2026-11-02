@@ -1,0 +1,48 @@
+name: Herdr contract
+
+# Validates the plugin against the supported Herdr release tracks. This workflow is not a
+# required check and never runs on a tag, so a preview failure is an early warning rather than a
+# release blocker: only the required checks on main decide release eligibility.
+on:
+  schedule:
+    # Daily, so a preview regression is visible before the next stable release.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: herdr-contract (${{ matrix.track }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [minimum, stable, preview]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # The contract needs tmux for the popup shell. Ubuntu 24.04 ships 3.4, the supported floor.
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tmux
+          tmux -V
+      - name: Run the Herdr contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HERDR_CONTRACT_TRACK: ${{ matrix.track }}
+          HERDR_CONTRACT_LOG_DIR: ${{ runner.temp }}/herdr-contract-logs/${{ matrix.track }}
+        run: sh scripts/herdr-contract.sh "$HERDR_CONTRACT_TRACK"
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: herdr-contract-${{ matrix.track }}-logs
+          path: ${{ runner.temp }}/herdr-contract-logs/${{ matrix.track }}
+          if-no-files-found: ignore
+          retention-days: 14
