@@ -36,6 +36,7 @@ gh api "repos/maro114510/herdr-toggle-popup/actions/runs/${run_id}/jobs" --jq '.
 - Read the names from these jobs, not from every check run on a commit.
 - A `CI` job or matrix change renames a context, so change the ruleset in the same pull request.
 - `CI` has one Go toolchain and no version matrix.
+- The scheduled [Herdr contract](./herdr-compatibility.md) workflow is not one of these contexts. It never runs on a pull request or a tag, so its preview track cannot block a release.
 
 ## Pull request settings
 
@@ -246,3 +247,4 @@ The release-tag ruleset.
 | No standing bypass actor | Changes must pass the pull request rule and the required checks |
 | The public key comes from `main` | A tag must not choose the key that verifies it |
 | Immutable releases are published from a draft | Publication freezes the assets |
+| The Herdr contract is scheduled, not a required check | Upstream Herdr releases move independently of a pull request, and a preview regression must not block a release; the [Herdr record](./herdr-compatibility.md) separates the required and advisory tracks |

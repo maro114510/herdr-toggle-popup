@@ -8,7 +8,7 @@ Thanks for improving herdr-toggle-popup. Contributions are accepted under the Ap
 | --- | --- |
 | Go | The version named in [go.mod](./go.mod) |
 | tmux | 3.4 or newer on PATH (the [compatibility minimum](./docs/design/tmux-compatibility.md)) |
-| Herdr | 0.9.3 or newer for manual checks |
+| Herdr | 0.9.3 or newer for manual checks (the [compatibility record](./docs/design/herdr-compatibility.md)) |
 | git | Any recent version |
 | make | Optional, for the convenience targets |
 
@@ -59,6 +59,16 @@ HERDR_TEST_REQUIRE_TMUX=1 go test -count=1 -run TestTmuxAttachScript ./internal/
 
 Those tests include the PTY mouse-drag checks, which read back both the tmux buffer and the decoded OSC52 payload. They use `infocmp` from ncurses to confirm the client terminal's `Ms` capability. The final hop into the host clipboard is verified manually with the [macOS smoke test](./docs/smoke-test-clipboard.md).
 
+### Herdr contract
+
+The scheduled [Herdr contract](./docs/design/herdr-compatibility.md) validates the plugin against the minimum, current stable, and latest preview Herdr releases. It is not one of the pull request checks. Run it locally when you change the manifest, a plugin pane, or the invocation context:
+
+```bash
+sh scripts/herdr-contract.sh stable
+```
+
+It needs `gh` authentication, `tmux`, and Go. The script records the Herdr version and revision it used and fails when the release cannot be fetched, when the binary reports another version, or when the contract test fails. Use `minimum` or `preview` for the other tracks.
+
 ### Pinned CI tools
 
 GitHub Actions are pinned to commit SHAs and updated by Dependabot. Tools that CI runs but that are not Actions are pinned to exact releases in [.github/workflows/ci.yml](./.github/workflows/ci.yml), so an unchanged workflow revision fetches the same binaries:
@@ -77,7 +87,7 @@ Dependabot does not manage these, so bump them by hand:
 2. Replace its pin in [.github/workflows/ci.yml](./.github/workflows/ci.yml).
 3. Run the tool's check and confirm the version it logs matches the new pin, for example `govulncheck ./...` or `golangci-lint run`.
 
-The workflow file is the source of truth; keep this table in sync when it changes. The tmux pins follow the [update policy](./docs/design/tmux-compatibility.md), which is the source of truth for those versions.
+The workflow file is the source of truth; keep this table in sync when it changes. The tmux pins follow the [update policy](./docs/design/tmux-compatibility.md), which is the source of truth for those versions. Herdr is not in this table: the [Herdr contract](./docs/design/herdr-compatibility.md) takes the minimum from `herdr-plugin.toml` and fetches the stable and preview releases on every run, recording each revision.
 
 ## Project layout
 
@@ -86,8 +96,10 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [main.go](./main.go) | CLI entry point and command wiring |
 | [internal/](./internal) | Plugin behavior grouped by concern, each package with tests |
 | [scripts/build.sh](./scripts/build.sh) | The Herdr build step |
+| [scripts/herdr-contract.sh](./scripts/herdr-contract.sh) | Resolves and runs one Herdr release contract track |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
+| [docs/design/herdr-compatibility.md](./docs/design/herdr-compatibility.md) | Supported Herdr tracks, contract steps, and failure handling |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
 | [docs/design/tmux-compatibility.md](./docs/design/tmux-compatibility.md) | Minimum tmux version, required capabilities, and compatibility CI targets |
 | [docs/smoke-test-clipboard.md](./docs/smoke-test-clipboard.md) | Manual macOS check that a popup drag reaches the host clipboard |
