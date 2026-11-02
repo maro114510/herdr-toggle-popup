@@ -30,7 +30,7 @@ func TestRun(t *testing.T) {
 		}{
 			"no args": {
 				args:      nil,
-				wantInMsg: []string{cmdToggle, cmdOnPaneClosed, cmdPopupShell},
+				wantInMsg: []string{cmdToggle, cmdPopupShell, cmdDoctor},
 			},
 			"unknown command": {
 				args:      []string{"unknown-cmd"},
@@ -61,6 +61,30 @@ func TestRun(t *testing.T) {
 	})
 }
 
+// TestRun_UsageOmitsRemovedLegacySubcommands pins the removed commands out of the help text, so a
+// user following the usage cannot invoke a command that no longer exists.
+func TestRun_UsageOmitsRemovedLegacySubcommands(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run(nil, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero when no command is given")
+	}
+	for _, removed := range []string{"gc", "on-pane-closed", "on-tab-focused", "registry"} {
+		if strings.Contains(stderr.String(), removed) {
+			t.Errorf("usage = %q, want it to not mention the removed %q command", stderr.String(), removed)
+		}
+	}
+	for _, kept := range []string{cmdToggle, cmdPopupShell, cmdDoctor, cmdVersion} {
+		if !strings.Contains(stderr.String(), kept) {
+			t.Errorf("usage = %q, want it to mention %q", stderr.String(), kept)
+		}
+	}
+}
+
 // toggle is wired to internal/toggle.Run (see internal/toggle for its own test suite); this only
 // asserts main.go actually dispatches to it rather than falling through to the not-implemented
 // or unknown-command branches.
@@ -77,62 +101,30 @@ func TestRun_ToggleDispatchesToToggleSubcommand(t *testing.T) {
 	assertDispatched(t, stderr.String())
 }
 
-// on-pane-closed is wired to internal/onpaneclosed.Run (see internal/onpaneclosed for its own
-// test suite); this only asserts main.go actually dispatches to it, using a missing-state-dir
-// error to get an onpaneclosed-specific message without needing a real registry.
-func TestRun_OnPaneClosedDispatchesToOnPaneClosedSubcommand(t *testing.T) {
+// TestRun_RejectsRemovedLegacySubcommands pins the v0.7.0 removal: gc and the event handlers no
+// longer dispatch, so each name is reported as an unknown command instead of running.
+func TestRun_RejectsRemovedLegacySubcommands(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
 	t.Setenv("HERDR_PANE_ID", "pane-1")
-
-	var stdout, stderr bytes.Buffer
-
-	code := run([]string{cmdOnPaneClosed}, &stdout, &stderr)
-
-	if code == 0 {
-		t.Errorf("exit code = 0, want non-zero when HERDR_PLUGIN_STATE_DIR is unset")
-	}
-	assertDispatched(t, stderr.String())
-	if !strings.Contains(stderr.String(), "on-pane-closed") {
-		t.Errorf("stderr = %q, want an on-pane-closed-prefixed error, confirming dispatch", stderr.String())
-	}
-}
-
-// on-tab-focused is wired to internal/ontabfocused.Run (see internal/ontabfocused for its own
-// test suite); this only asserts main.go actually dispatches to it, using a missing-state-dir
-// error to get an ontabfocused-specific message without needing a real registry.
-func TestRun_OnTabFocusedDispatchesToOnTabFocusedSubcommand(t *testing.T) {
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
 	t.Setenv("HERDR_TAB_ID", "tab-1")
 
-	var stdout, stderr bytes.Buffer
+	//nolint:paralleltest // t.Setenv above is not parallel-safe.
+	for _, command := range []string{"gc", "on-pane-closed", "on-tab-focused"} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
 
-	code := run([]string{cmdOnTabFocused}, &stdout, &stderr)
+			code := run([]string{command}, &stdout, &stderr)
 
-	if code == 0 {
-		t.Errorf("exit code = 0, want non-zero when HERDR_PLUGIN_STATE_DIR is unset")
-	}
-	assertDispatched(t, stderr.String())
-	if !strings.Contains(stderr.String(), "on-tab-focused") {
-		t.Errorf("stderr = %q, want an on-tab-focused-prefixed error, confirming dispatch", stderr.String())
-	}
-}
-
-// gc is wired to internal/gc.Run (see internal/gc for its own test suite); this only asserts
-// main.go actually dispatches to it, using a missing-state-dir error to get a gc-specific
-// message without needing a real registry.
-func TestRun_GcDispatchesToGcSubcommand(t *testing.T) {
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
-
-	var stdout, stderr bytes.Buffer
-
-	code := run([]string{cmdGc}, &stdout, &stderr)
-
-	if code == 0 {
-		t.Errorf("exit code = 0, want non-zero when HERDR_PLUGIN_STATE_DIR is unset")
-	}
-	assertDispatched(t, stderr.String())
-	if !strings.HasPrefix(stderr.String(), "gc:") {
-		t.Errorf("stderr = %q, want a gc-prefixed error, confirming dispatch", stderr.String())
+			if code == 0 {
+				t.Errorf("exit code = 0, want non-zero for the removed %q command", command)
+			}
+			if !strings.Contains(stderr.String(), "unknown command") {
+				t.Errorf("stderr = %q, want an unknown-command error for the removed %q command", stderr.String(), command)
+			}
+			if strings.HasPrefix(stderr.String(), command+":") {
+				t.Errorf("stderr = %q, want no dispatch to the removed %q command", stderr.String(), command)
+			}
+		})
 	}
 }
 
