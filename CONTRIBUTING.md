@@ -51,6 +51,8 @@ CI runs these checks on every pull request.
 
 `gofmt` must print nothing. `go fix` must not modify tracked Go files. `go mod tidy` must not modify `go.mod` or `go.sum`. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
 
+The Go toolchain is pinned to an exact patch release by the `toolchain` directive in [go.mod](./go.mod), which `setup-go` reads through `go-version-file`; a patch release can change the compiled output. `go test ./...` also runs [scripts/verify-reproducible-build.sh](./scripts/verify-reproducible-build.sh), which builds the four release targets twice from independent copies of the source and fails when their SHA-256 digests differ.
+
 The real tmux server tests skip themselves when tmux is missing or older than 3.4. CI sets `HERDR_TEST_REQUIRE_TMUX=1`, so either condition fails them instead, and runs them on both versions in the [compatibility record](./docs/design/tmux-compatibility.md).
 
 ```bash
@@ -89,6 +91,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [internal/](./internal) | Plugin behavior grouped by concern, each package with tests |
 | [scripts/build.sh](./scripts/build.sh) | The Herdr build step |
 | [scripts/generate-sbom.sh](./scripts/generate-sbom.sh) | SBOM generation and validation for the release binaries |
+| [scripts/verify-reproducible-build.sh](./scripts/verify-reproducible-build.sh) | Rebuilds the four release targets twice and compares their SHA-256 digests |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |

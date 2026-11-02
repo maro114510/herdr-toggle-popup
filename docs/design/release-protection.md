@@ -138,8 +138,9 @@ A release may be published only when all of these hold.
 1. The version bump merges to `main` through a pull request that satisfies the same rule and checks as any other change, with no bypass.
 2. The tag is annotated, signed with the signing key, and placed on a commit reachable from `main`.
 3. `herdr-plugin.toml` at the tagged commit has a `version` equal to the tag name without the leading `v`.
-4. Four binaries, `checksums.txt`, artifact attestations, and a machine readable software bill of materials all exist.
-5. The release is published from a draft as an immutable release with every asset attached first.
+4. `sh scripts/verify-reproducible-build.sh <version>` produces matching SHA-256 digests for all four targets from two independent clean builds, and `go test ./...` runs that check on every pull request.
+5. Four binaries, `checksums.txt`, artifact attestations, and a machine readable software bill of materials all exist.
+6. The release is published from a draft as an immutable release with every asset attached first.
 
 `make release` merges the bump first and then pushes the signed tag, replacing the direct push path.
 
@@ -245,4 +246,6 @@ The release-tag ruleset.
 | `git verify-tag` decides tag authenticity | A ruleset cannot enforce a tag signature |
 | No standing bypass actor | Changes must pass the pull request rule and the required checks |
 | The public key comes from `main` | A tag must not choose the key that verifies it |
+| The Go toolchain is pinned in `go.mod` | A patch release changes the compiled output, so the toolchain is a fixed build input |
+| The reproducibility check runs the release build command verbatim | A check of a different recipe would not describe the released binaries |
 | Immutable releases are published from a draft | Publication freezes the assets |
