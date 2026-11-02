@@ -32,5 +32,5 @@ next-version: ## Show the next SemVer inferred from Conventional Commits.
 	fi; \
 	printf '%s\n' "$$new_version"
 
-release: ## Bump the manifest, commit, tag, and push a release.
+release: ## Merge the manifest bump, then push a signed release tag.
 	@sh scripts/release.sh
