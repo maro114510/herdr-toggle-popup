@@ -84,28 +84,22 @@ func runList(args []string, stdout, stderr io.Writer) int {
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].name < sessions[j].name })
 
-	candidates := 0
-	unmanaged := 0
+	candidates := make([]session, 0, len(sessions))
 	for _, s := range sessions {
 		if classify(s) == ownershipManaged {
-			candidates++
-		} else {
-			unmanaged++
+			candidates = append(candidates, s)
 		}
 	}
 
-	_, _ = fmt.Fprintf(stdout, "candidates: %d\n", candidates)
-	for _, s := range sessions {
-		if classify(s) != ownershipManaged {
-			continue
-		}
+	_, _ = fmt.Fprintf(stdout, "candidates: %d\n", len(candidates))
+	for _, s := range candidates {
 		state := detachedState
 		if s.clients > 0 {
 			state = attachedState
 		}
 		_, _ = fmt.Fprintf(stdout, "%s clients=%d %s\n", s.name, s.clients, state)
 	}
-	_, _ = fmt.Fprintf(stdout, "unmanaged: %d\n", unmanaged)
+	_, _ = fmt.Fprintf(stdout, "unmanaged: %d\n", len(sessions)-len(candidates))
 	return 0
 }
 
