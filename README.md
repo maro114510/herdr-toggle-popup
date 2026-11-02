@@ -59,7 +59,7 @@ Each release attaches one CycloneDX 1.6 JSON SBOM per distributed binary. [`syft
 List the modules and versions:
 
 ```bash
-jq -r '.components[] | "\(.name) \(.version)"' sbom_toggle-popup_darwin_arm64.cdx.json
+jq -r '.components[] | select(.type == "library") | "\(.name) \(.version)"' sbom_toggle-popup_darwin_arm64.cdx.json
 ```
 
 Compare them with the binary's own record:
