@@ -53,27 +53,25 @@ jobs:
           MANIFEST_VERSION="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' herdr-plugin.toml | head -n 1)"
           test "${MANIFEST_VERSION}" = "${VERSION}" || { echo "herdr-plugin.toml has version ${MANIFEST_VERSION}, expected ${VERSION}"; exit 1; }
 
-      - name: Build cross-compiled binaries
+      - name: Build reproducible binaries
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -eu
           VERSION="${TAG_NAME#v}"
-          mkdir -p dist
-          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
-            goos="${target%/*}"
-            goarch="${target#*/}"
-            echo "Building ${goos}/${goarch}"
-            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build \
-              -trimpath \
-              -ldflags "-s -w -X main.version=${VERSION}" \
-              -o "dist/toggle-popup_${goos}_${goarch}" .
-          done
+          sh scripts/reproducible-build.sh "${VERSION}" dist
 
       - name: Smoke test linux/amd64 binary
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -eu
-          ./dist/toggle-popup_linux_amd64 version
+          VERSION="${TAG_NAME#v}"
+          reported="$(./dist/toggle-popup_linux_amd64 version)"
+          test "${reported}" = "${VERSION}" || {
+            echo "linux/amd64 binary reports ${reported}, expected ${VERSION}"
+            exit 1
+          }
 
       - name: Generate checksums
         run: |

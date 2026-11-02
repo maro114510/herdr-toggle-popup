@@ -35,6 +35,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # Runs before any step that may rewrite the checkout, because the check
+      # compares the working tree with an export of HEAD.
+      - name: Check reproducible release builds
+        if: matrix.os == 'ubuntu-latest'
+        run: sh scripts/reproducible-build.sh 0.0.0-ci "$RUNNER_TEMP/reproducible"
       - name: Check gofmt
         run: |
           fmt_out="$(gofmt -l .)"
