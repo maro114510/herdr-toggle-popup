@@ -46,10 +46,13 @@ CI runs these checks on every pull request.
 | Real tmux server tests | `go test -count=1 -run TestTmuxAttachScript ./internal/popupshell/` |
 | Race detection | `go test -race ./...` |
 | Vulnerabilities | `govulncheck ./...` |
+| Release reproducibility | `sh scripts/reproducible-build.sh 0.0.0-ci dist/repro` |
 | Shell scripts | `shellcheck scripts/*.sh` |
 | Lint | `golangci-lint run` |
 
 `gofmt` must print nothing. `go fix` must not modify tracked Go files. `go mod tidy` must not modify `go.mod` or `go.sum`. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
+
+The reproducibility check builds each target twice, once from the working tree and once from an exported copy of `HEAD` at another path, so run it from a clean checkout. The [reproducible build record](./docs/design/reproducible-builds.md) lists the fixed inputs and the limits.
 
 The real tmux server tests skip themselves when tmux is missing or older than 3.4. CI sets `HERDR_TEST_REQUIRE_TMUX=1`, so either condition fails them instead, and runs them on both versions in the [compatibility record](./docs/design/tmux-compatibility.md).
 
@@ -86,8 +89,10 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [main.go](./main.go) | CLI entry point and command wiring |
 | [internal/](./internal) | Plugin behavior grouped by concern, each package with tests |
 | [scripts/build.sh](./scripts/build.sh) | The Herdr build step |
+| [scripts/reproducible-build.sh](./scripts/reproducible-build.sh) | Builds the four release targets twice and verifies their digests and version |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
+| [docs/design/reproducible-builds.md](./docs/design/reproducible-builds.md) | Fixed release-build inputs, verification, and reproducibility limits |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
 | [docs/design/tmux-compatibility.md](./docs/design/tmux-compatibility.md) | Minimum tmux version, required capabilities, and compatibility CI targets |
 | [docs/smoke-test-clipboard.md](./docs/smoke-test-clipboard.md) | Manual macOS check that a popup drag reaches the host clipboard |
