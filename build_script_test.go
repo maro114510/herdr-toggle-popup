@@ -14,7 +14,10 @@ import (
 const (
 	toolCat     = "cat"
 	toolDirname = "dirname"
+	toolHead    = "head"
+	toolMkdir   = "mkdir"
 	toolPwd     = "pwd"
+	toolSed     = "sed"
 
 	goosDarwin = "darwin"
 	goarchARM  = "arm64"
@@ -74,7 +77,7 @@ func TestBuildScriptSourceBuildPathStillWorksWhenTmuxExists(t *testing.T) {
 		_ = os.Remove(binPath)
 	})
 
-	pathDir := newToolPath(t, []string{toolCat, toolDirname, "head", "mkdir", toolPwd, "sed"})
+	pathDir := newToolPath(t, []string{toolCat, toolDirname, toolHead, toolMkdir, toolPwd, toolSed})
 	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
 	writeFakeTool(t, pathDir, "go", `#!/bin/sh
 out=""
@@ -105,7 +108,7 @@ func TestBuildScriptSourceBuildEmbedsManifestVersion(t *testing.T) {
 	root := stageBuildScript(t, "version = \"9.9.9\"\n")
 	argsLog := filepath.Join(t.TempDir(), "go.args")
 
-	pathDir := newToolPath(t, []string{toolCat, toolDirname, "head", "mkdir", toolPwd, "sed"})
+	pathDir := newToolPath(t, []string{toolCat, toolDirname, toolHead, toolMkdir, toolPwd, toolSed})
 	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
 	writeFakeTool(t, pathDir, "go", `#!/bin/sh
 printf '%s\n' "$*" >> "$GO_ARGS_LOG"
@@ -121,6 +124,7 @@ test -n "$out"
 printf '%s\n' fake-go-binary > "$out"
 `)
 
+	//nolint:gosec // The script path is built from a fixture directory under t.TempDir.
 	cmd := exec.Command("sh", filepath.Join(root, "scripts", "build.sh"))
 	cmd.Env = append(os.Environ(), "PATH="+pathDir, "GO_ARGS_LOG="+argsLog)
 	output, err := cmd.CombinedOutput()
@@ -137,13 +141,14 @@ func TestBuildScriptSourceBuildFailsWhenManifestVersionIsUnreadable(t *testing.T
 	root := stageBuildScript(t, "id = \"maro114510.toggle-popup\"\n")
 	goLog := filepath.Join(t.TempDir(), "go.args")
 
-	pathDir := newToolPath(t, []string{toolCat, toolDirname, "head", "mkdir", toolPwd, "sed"})
+	pathDir := newToolPath(t, []string{toolCat, toolDirname, toolHead, toolMkdir, toolPwd, toolSed})
 	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
 	writeFakeTool(t, pathDir, "go", `#!/bin/sh
 printf '%s\n' "$*" >> "$GO_ARGS_LOG"
 exit 0
 `)
 
+	//nolint:gosec // The script path is built from a fixture directory under t.TempDir.
 	cmd := exec.Command("sh", filepath.Join(root, "scripts", "build.sh"))
 	cmd.Env = append(os.Environ(), "PATH="+pathDir, "GO_ARGS_LOG="+goLog)
 	var stderr bytes.Buffer
@@ -168,7 +173,6 @@ func stageBuildScript(t *testing.T, manifest string) string {
 
 	root := t.TempDir()
 	scriptDir := filepath.Join(root, "scripts")
-	//nolint:gosec // Fixture directory is created under t.TempDir.
 	if err := os.MkdirAll(scriptDir, 0o750); err != nil {
 		t.Fatalf("create fixture scripts dir: %v", err)
 	}
@@ -193,7 +197,7 @@ func TestBuildScriptDownloadPathStillVerifiesChecksumWhenTmuxExists(t *testing.T
 		_ = os.Remove(binPath)
 	})
 
-	pathDir := newToolPath(t, []string{"awk", toolCat, "chmod", toolDirname, "head", "mkdir", "mktemp", "mv", toolPwd, "rm", "sed"})
+	pathDir := newToolPath(t, []string{"awk", toolCat, "chmod", toolDirname, toolHead, toolMkdir, "mktemp", "mv", toolPwd, "rm", toolSed})
 	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
 	writeFakeTool(t, pathDir, "uname", fmt.Sprintf(`#!/bin/sh
 case "$1" in
