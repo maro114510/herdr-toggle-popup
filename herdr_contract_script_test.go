@@ -24,6 +24,7 @@ import (
 const (
 	stubRevision      = "0123456789abcdef0123456789abcdef01234567"
 	stubOtherRevision = "fedcba9876543210fedcba9876543210fedcba98"
+	stubStableTag     = "v0.9.5"
 )
 
 // contractStub holds the fake release API, download, and Go toolchain one contract run sees.
@@ -35,10 +36,10 @@ type contractStub struct {
 
 // newContractStub writes fakes for gh, curl, go, and tmux onto a private PATH. The fakes print the
 // values the test supplies, so the test never reaches GitHub or the network.
-func newContractStub(t *testing.T, herdrVersion, stableTag, previewTag, revision string) *contractStub {
+func newContractStub(t *testing.T, herdrVersion, previewTag string) *contractStub {
 	t.Helper()
 
-	pathDir := newToolPath(t, []string{"chmod", "cut", "dirname", "head", "mkdir", "mktemp", "rm", "sed", "uname"})
+	pathDir := newToolPath(t, []string{"chmod", "cut", toolDirname, "head", toolMkdir, "mktemp", "rm", "sed", "uname"})
 	goLog := filepath.Join(t.TempDir(), "go.log")
 	ghLog := filepath.Join(t.TempDir(), "gh.log")
 
@@ -81,9 +82,9 @@ printf 'tmux %s\n' "${STUB_TMUX_VERSION:-3.8}"
 		"STUB_GO_LOG="+goLog,
 		"STUB_GH_LOG="+ghLog,
 		"STUB_HERDR_VERSION="+herdrVersion,
-		"STUB_STABLE_TAG="+stableTag,
+		"STUB_STABLE_TAG="+stubStableTag,
 		"STUB_PREVIEW_TAG="+previewTag,
-		"STUB_REVISION="+revision,
+		"STUB_REVISION="+stubRevision,
 	)
 	return &contractStub{env: env, goLog: goLog, ghLog: ghLog}
 }
@@ -120,7 +121,7 @@ func (s *contractStub) wantNoContractRun(t *testing.T) {
 func TestHerdrContractScriptMinimumResolvesManifestFloor(t *testing.T) {
 	t.Parallel()
 
-	stub := newContractStub(t, "herdr 0.9.3", "v0.9.5", "preview-2026-10-14-"+stubRevision[:12], stubRevision)
+	stub := newContractStub(t, "herdr 0.9.3", "preview-2026-10-14-"+stubRevision[:12])
 	stdout, stderr, code := stub.run(t, "minimum")
 	if code != 0 {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
@@ -152,7 +153,7 @@ func TestHerdrContractScriptMinimumResolvesManifestFloor(t *testing.T) {
 func TestHerdrContractScriptStableResolvesLatestRelease(t *testing.T) {
 	t.Parallel()
 
-	stub := newContractStub(t, "herdr 0.9.5", "v0.9.5", "preview-2026-10-14-"+stubRevision[:12], stubRevision)
+	stub := newContractStub(t, "herdr 0.9.5", "preview-2026-10-14-"+stubRevision[:12])
 	stdout, stderr, code := stub.run(t, "stable")
 	if code != 0 {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
@@ -176,7 +177,7 @@ func TestHerdrContractScriptPreviewAcceptsRevisionInVersion(t *testing.T) {
 	t.Parallel()
 
 	previewTag := "preview-2026-10-14-" + stubRevision[:12]
-	stub := newContractStub(t, "herdr 0.9.4-preview.2026-10-14-"+stubRevision[:12], "v0.9.5", previewTag, stubRevision)
+	stub := newContractStub(t, "herdr 0.9.4-preview.2026-10-14-"+stubRevision[:12], previewTag)
 	stdout, stderr, code := stub.run(t, "preview")
 	if code != 0 {
 		t.Fatalf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
@@ -196,7 +197,7 @@ func TestHerdrContractScriptPreviewAcceptsRevisionInVersion(t *testing.T) {
 func TestHerdrContractScriptRejectsWrongStableVersion(t *testing.T) {
 	t.Parallel()
 
-	stub := newContractStub(t, "herdr 0.9.3", "v0.9.5", "preview-2026-10-14-"+stubRevision[:12], stubRevision)
+	stub := newContractStub(t, "herdr 0.9.3", "preview-2026-10-14-"+stubRevision[:12])
 	_, stderr, code := stub.run(t, "stable")
 	if code == 0 {
 		t.Fatalf("exit %d, want a failure for a mismatched stable binary", code)
@@ -210,7 +211,7 @@ func TestHerdrContractScriptRejectsWrongStableVersion(t *testing.T) {
 func TestHerdrContractScriptRejectsPreviewWithoutRevision(t *testing.T) {
 	t.Parallel()
 
-	stub := newContractStub(t, "herdr 0.9.4-preview.2026-10-14-"+stubOtherRevision[:12], "v0.9.5", "preview-2026-10-14-"+stubRevision[:12], stubRevision)
+	stub := newContractStub(t, "herdr 0.9.4-preview.2026-10-14-"+stubOtherRevision[:12], "preview-2026-10-14-"+stubRevision[:12])
 	_, stderr, code := stub.run(t, "preview")
 	if code == 0 {
 		t.Fatalf("exit %d, want a failure for a preview binary from another revision", code)
@@ -224,7 +225,7 @@ func TestHerdrContractScriptRejectsPreviewWithoutRevision(t *testing.T) {
 func TestHerdrContractScriptFailsWhenDownloadFails(t *testing.T) {
 	t.Parallel()
 
-	stub := newContractStub(t, "herdr 0.9.5", "v0.9.5", "preview-2026-10-14-"+stubRevision[:12], stubRevision)
+	stub := newContractStub(t, "herdr 0.9.5", "preview-2026-10-14-"+stubRevision[:12])
 	stub.env = append(stub.env, "STUB_CURL_FAIL=1")
 	_, stderr, code := stub.run(t, "stable")
 	if code == 0 {
@@ -239,7 +240,7 @@ func TestHerdrContractScriptFailsWhenDownloadFails(t *testing.T) {
 func TestHerdrContractScriptRejectsUnknownTrackBeforeLookup(t *testing.T) {
 	t.Parallel()
 
-	stub := newContractStub(t, "herdr 0.9.5", "v0.9.5", "preview-2026-10-14-"+stubRevision[:12], stubRevision)
+	stub := newContractStub(t, "herdr 0.9.5", "preview-2026-10-14-"+stubRevision[:12])
 	_, stderr, code := stub.run(t, "nightly")
 	if code != 2 {
 		t.Fatalf("exit %d, want usage exit 2", code)

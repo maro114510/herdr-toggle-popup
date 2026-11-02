@@ -14,6 +14,7 @@ import (
 const (
 	toolCat     = "cat"
 	toolDirname = "dirname"
+	toolMkdir   = "mkdir"
 	toolPwd     = "pwd"
 
 	goosDarwin = "darwin"
@@ -72,7 +73,7 @@ func TestBuildScriptSourceBuildPathStillWorksWhenTmuxExists(t *testing.T) {
 		_ = os.Remove(binPath)
 	})
 
-	pathDir := newToolPath(t, []string{toolCat, toolDirname, "mkdir", toolPwd})
+	pathDir := newToolPath(t, []string{toolCat, toolDirname, toolMkdir, toolPwd})
 	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
 	writeFakeTool(t, pathDir, "go", `#!/bin/sh
 out=""
@@ -105,7 +106,7 @@ func TestBuildScriptDownloadPathStillVerifiesChecksumWhenTmuxExists(t *testing.T
 		_ = os.Remove(binPath)
 	})
 
-	pathDir := newToolPath(t, []string{"awk", toolCat, "chmod", toolDirname, "head", "mkdir", "mktemp", "mv", toolPwd, "rm", "sed"})
+	pathDir := newToolPath(t, []string{"awk", toolCat, "chmod", toolDirname, "head", toolMkdir, "mktemp", "mv", toolPwd, "rm", "sed"})
 	writeFakeTool(t, pathDir, "tmux", "#!/bin/sh\nexit 0\n")
 	writeFakeTool(t, pathDir, "uname", fmt.Sprintf(`#!/bin/sh
 case "$1" in
