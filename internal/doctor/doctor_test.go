@@ -22,6 +22,8 @@ import (
 // - a missing Ms capability and unexpected clipboard settings are reported on separate lines
 // - missing context and missing tools do not stop the remaining diagnosis
 // - diagnosis issues only read-only tmux commands
+// - a development binary is reported as a development build, not as a release match
+// - a binary version behind the manifest is reported as a warning
 
 const (
 	testVersion = "0.2.1"
@@ -60,9 +62,36 @@ func writeFile(t *testing.T, dir, name, content string) string {
 func runDoctor(t *testing.T) (int, string, string) {
 	t.Helper()
 
+	return runDoctorAs(t, testVersion)
+}
+
+// runDoctorAs runs the diagnostics the binary built with version would print.
+func runDoctorAs(t *testing.T, version string) (int, string, string) {
+	t.Helper()
+
 	var stdout, stderr bytes.Buffer
-	code := Run(nil, &stdout, &stderr, testVersion)
+	code := Run(nil, &stdout, &stderr, version)
 	return code, stdout.String(), stderr.String()
+}
+
+// manifestVersionEnvironment points the plugin root at a manifest holding version, and leaves
+// every optional environment value unset, so only the version line varies between tests.
+func manifestVersionEnvironment(t *testing.T, version string) {
+	t.Helper()
+
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HERDR_BIN_PATH", "")
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_WORKSPACE_ID", "")
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", "")
+	t.Setenv("TERM", "")
+	t.Setenv("TERM_PROGRAM", "")
+
+	pluginRoot := t.TempDir()
+	writeFile(t, pluginRoot, "herdr-plugin.toml", "version = \""+version+"\"\n")
+	t.Setenv("HERDR_PLUGIN_ROOT", pluginRoot)
 }
 
 func TestRun_ReportsNormalPluginEnvironment(t *testing.T) {
@@ -105,6 +134,42 @@ func TestRun_ReportsNormalPluginEnvironment(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 		}
+	}
+}
+
+//nolint:paralleltest // The test installs the plugin environment process-wide.
+func TestRun_DevelopmentBinaryIsReportedAsDevelopmentBuild(t *testing.T) {
+	manifestVersionEnvironment(t, "0.5.1")
+
+	code, stdout, stderr := runDoctorAs(t, "dev")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	want := "version: ok (binary=dev, manifest=0.5.1; development build)"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
+	}
+}
+
+//nolint:paralleltest // The test installs the plugin environment process-wide.
+func TestRun_BinaryBehindManifestIsReportedAsWarning(t *testing.T) {
+	manifestVersionEnvironment(t, "0.5.1")
+
+	code, stdout, stderr := runDoctorAs(t, "0.5.0")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	want := "version: warning (binary=0.5.0, manifest=0.5.1)"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("stdout = %q, want it to contain %q", stdout, want)
 	}
 }
 
