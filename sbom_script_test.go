@@ -29,9 +29,8 @@ const (
 	sbomExtension  = ".cdx.json"
 )
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptWithoutArgumentsPrintsUsage(t *testing.T) {
-	t.Parallel()
-
 	stderr, err := runSBOMScript(t, "")
 
 	if err == nil {
@@ -43,9 +42,8 @@ func TestSBOMScriptWithoutArgumentsPrintsUsage(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptWithoutSyftFailsAndWritesNoSBOM(t *testing.T) {
-	t.Parallel()
-
 	distDir := t.TempDir()
 	writeReleaseBinary(t, distDir, sbomLinuxAMD64)
 
@@ -60,9 +58,8 @@ func TestSBOMScriptWithoutSyftFailsAndWritesNoSBOM(t *testing.T) {
 	assertNotExist(t, sbomPath(distDir, sbomLinuxAMD64))
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptWithoutValidatorFailsAndWritesNoSBOM(t *testing.T) {
-	t.Parallel()
-
 	tools := installFakeSBOMTools(t)
 	removeFakeTool(t, tools.pathDir, "cyclonedx")
 	distDir := t.TempDir()
@@ -79,9 +76,8 @@ func TestSBOMScriptWithoutValidatorFailsAndWritesNoSBOM(t *testing.T) {
 	assertNotExist(t, sbomPath(distDir, sbomLinuxAMD64))
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptWithoutReleaseBinariesFails(t *testing.T) {
-	t.Parallel()
-
 	tools := installFakeSBOMTools(t)
 	distDir := t.TempDir()
 
@@ -98,9 +94,8 @@ func TestSBOMScriptWithoutReleaseBinariesFails(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptWritesOneSBOMPerReleaseBinary(t *testing.T) {
-	t.Parallel()
-
 	tools := installFakeSBOMTools(t)
 	distDir := t.TempDir()
 	writeReleaseBinary(t, distDir, sbomDarwinARM)
@@ -124,9 +119,8 @@ func TestSBOMScriptWritesOneSBOMPerReleaseBinary(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptScansEachBinaryAtTheReleaseVersion(t *testing.T) {
-	t.Parallel()
-
 	tools := installFakeSBOMTools(t)
 	distDir := t.TempDir()
 	binaryPath := writeReleaseBinary(t, distDir, sbomLinuxAMD64)
@@ -152,9 +146,8 @@ func TestSBOMScriptScansEachBinaryAtTheReleaseVersion(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptValidatesEachSBOMPerBinaryAsCycloneDX16JSON(t *testing.T) {
-	t.Parallel()
-
 	tools := installFakeSBOMTools(t)
 	distDir := t.TempDir()
 	writeReleaseBinary(t, distDir, sbomLinuxAMD64)
@@ -181,9 +174,8 @@ func TestSBOMScriptValidatesEachSBOMPerBinaryAsCycloneDX16JSON(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptFailsWhenSyftFails(t *testing.T) {
-	t.Parallel()
-
 	tools := installFakeSBOMTools(t)
 	writeFakeTool(t, tools.pathDir, "syft", "#!/bin/sh\nexit 1\n")
 	distDir := t.TempDir()
@@ -202,9 +194,8 @@ func TestSBOMScriptFailsWhenSyftFails(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestSBOMScriptFailsWhenValidationRejectsASBOM(t *testing.T) {
-	t.Parallel()
-
 	tools := installFakeSBOMTools(t)
 	writeFakeTool(t, tools.pathDir, "cyclonedx", "#!/bin/sh\nexit 1\n")
 	distDir := t.TempDir()
@@ -273,7 +264,7 @@ func removeFakeTool(t *testing.T, dir, name string) {
 func runSBOMScript(t *testing.T, pathDir string, args ...string) (string, error) {
 	t.Helper()
 
-	cmd := exec.Command("sh", append([]string{sbomScriptName}, args...)...)
+	cmd := exec.Command("sh", append([]string{sbomScriptName}, args...)...) //nolint:gosec // Arguments come from the test, not from outside input.
 	if pathDir != "" {
 		cmd.Env = append(os.Environ(), "PATH="+pathDir)
 	}
@@ -295,7 +286,6 @@ func writeReleaseBinary(t *testing.T, distDir, asset string) string {
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
-	//nolint:gosec // Test fixtures are only read by this package.
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
