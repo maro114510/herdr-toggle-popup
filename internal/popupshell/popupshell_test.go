@@ -554,7 +554,8 @@ func TestTmuxAttachScriptDoesNotAdoptExistingSessionWithoutOwnerMarker(t *testin
 	}
 }
 
-// TestTmuxAttachScriptLeavesLegacySessionsUntouched covers the pre-namespace identities: a legacy// session may sit on either the dedicated server (created after the dedicated-server migration) or
+// TestTmuxAttachScriptLeavesLegacySessionsUntouched covers the pre-namespace identities: a legacy
+// session may sit on either the dedicated server (created after the dedicated-server migration) or
 // the default server (created before it). Neither may be removed once identity includes the Herdr
 // namespace, and the target namespace opens its own dedicated session.
 func TestTmuxAttachScriptLeavesLegacySessionsUntouched(t *testing.T) {
