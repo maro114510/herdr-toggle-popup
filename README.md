@@ -112,7 +112,29 @@ A saved shell is keyed to its Herdr namespace, its scope, and its entrypoint, an
 
 Herdr permits one native popup at a time. Close any existing native popup before opening this shell.
 
-To discard a saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
+To discard a saved popup shell session, inspect the candidates and then delete the ones you select.
+
+### Discarding a saved shell
+
+Sessions the plugin creates carry an ownership marker. List the candidates without changing any state, including an absent server:
+
+```bash
+"$HERDR_PLUGIN_ROOT/bin/toggle-popup" cleanup list
+```
+
+Each candidate line names the session and shows whether a client is attached. Delete only the sessions you name:
+
+```bash
+"$HERDR_PLUGIN_ROOT/bin/toggle-popup" cleanup delete <session>...
+```
+
+Nothing is deleted automatically: neither a long lifetime nor the absence of clients is a reason to remove a session. An attached session is refused by default because deleting it also ends its clients. Pass `--force` when that is what you want:
+
+```bash
+"$HERDR_PLUGIN_ROOT/bin/toggle-popup" cleanup delete --force <session>...
+```
+
+A session without the ownership marker predates this version or was not created by the plugin. Cleanup never lists it as a candidate or deletes it. Remove one by hand with the tmux commands in [Recovering sessions from earlier versions](#recovering-sessions-from-earlier-versions).
 
 ### Recovering sessions from earlier versions
 
