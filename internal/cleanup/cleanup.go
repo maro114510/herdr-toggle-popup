@@ -26,7 +26,7 @@ const (
 
 	// listFormat asks for the session name, its attached client count, and the ownership marker
 	// in one read. A session without the marker reports an empty third field.
-	listFormat = "#{session_name}\t#{session_attached}\t" + popupshell.OwnerOption
+	listFormat = "#{session_name}\t#{session_attached}\t#{" + popupshell.OwnerOption + "}"
 )
 
 const usage = `usage: toggle-popup cleanup list
@@ -111,16 +111,121 @@ func runList(args []string, stdout, stderr io.Writer) int {
 
 // runDelete keeps the explicit-selection contract: it validates the whole selection first, so a
 // target the plugin must not touch leaves every other session in place.
-func runDelete(_ []string, _ io.Writer, stderr io.Writer) int {
-	return usageError(stderr)
+func runDelete(args []string, stdout, stderr io.Writer) int {
+	force := false
+	targets := make([]string, 0, len(args))
+	for _, arg := range args {
+		switch {
+		case arg == "--force":
+			force = true
+		case arg == "" || strings.HasPrefix(arg, "-"):
+			return usageError(stderr)
+		default:
+			targets = append(targets, arg)
+		}
+	}
+	if len(targets) == 0 {
+		return usageError(stderr)
+	}
+
+	sessions, err := listSessions()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "cleanup: %v\n", err)
+		return 1
+	}
+	byName := make(map[string]session, len(sessions))
+	for _, s := range sessions {
+		byName[s.name] = s
+	}
+
+	selected := make([]session, 0, len(targets))
+	seen := make(map[string]bool, len(targets))
+	problems := make([]string, 0)
+	for _, name := range targets {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+
+		s, ok := byName[name]
+		if !ok {
+			problems = append(problems, fmt.Sprintf("%s: no such session", name))
+			continue
+		}
+		if reason := rejectionReason(s); reason != "" {
+			problems = append(problems, reason)
+			continue
+		}
+		if s.clients > 0 && !force {
+			problems = append(problems, fmt.Sprintf("%s: attached to %s; pass --force to delete it",
+				s.name, clientCount(s.clients)))
+			continue
+		}
+		selected = append(selected, s)
+	}
+	if len(problems) > 0 {
+		for _, problem := range problems {
+			_, _ = fmt.Fprintf(stderr, "cleanup: %s\n", problem)
+		}
+		return 1
+	}
+
+	tmuxPath, err := tmuxExecutable()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "cleanup: %v\n", err)
+		return 1
+	}
+	deleted := 0
+	failed := false
+	for _, s := range selected {
+		_, killStderr, killErr := tmuxCommand(tmuxPath, "kill-session", "-t", "="+s.name)
+		if killErr != nil {
+			detail := strings.TrimSpace(killStderr)
+			if detail == "" {
+				detail = killErr.Error()
+			}
+			_, _ = fmt.Fprintf(stderr, "cleanup: %s: could not delete: %s\n", s.name, detail)
+			failed = true
+			continue
+		}
+		deleted++
+	}
+
+	_, _ = fmt.Fprintf(stdout, "deleted: %d\n", deleted)
+	if failed {
+		return 1
+	}
+	return 0
+}
+
+// rejectionReason explains why a target is not deletable, or returns "" when it is.
+func rejectionReason(s session) string {
+	switch classify(s) {
+	case ownershipManaged:
+		return ""
+	case ownershipNonPlugin:
+		return fmt.Sprintf("%s: not a plugin session", s.name)
+	case ownershipLegacy:
+		return fmt.Sprintf("%s: legacy session without an ownership marker", s.name)
+	case ownershipOther:
+		return fmt.Sprintf("%s: ownership is unknown", s.name)
+	}
+	return fmt.Sprintf("%s: ownership is unknown", s.name)
+}
+
+func clientCount(n int) string {
+	if n == 1 {
+		return "1 client"
+	}
+	return fmt.Sprintf("%d clients", n)
 }
 
 // listSessions reads the dedicated server without starting it. An absent server is an empty list,
 // not an error, because a user inspecting candidates must not create a server as a side effect.
 func listSessions() ([]session, error) {
-	tmuxPath, err := exec.LookPath(tmuxBin)
+	tmuxPath, err := tmuxExecutable()
 	if err != nil {
-		return nil, fmt.Errorf("tmux is required but was not found on PATH: %w", err)
+		return nil, err
 	}
 
 	stdout, stderr, err := tmuxCommand(tmuxPath, "list-sessions", "-F", listFormat)
@@ -174,6 +279,15 @@ func classify(s session) verdict {
 func serverAbsent(stderr string) bool {
 	return strings.Contains(stderr, "no server running") ||
 		strings.Contains(stderr, "No such file or directory")
+}
+
+// tmuxExecutable resolves tmux from PATH, naming it as the missing requirement when it is absent.
+func tmuxExecutable() (string, error) {
+	path, err := exec.LookPath(tmuxBin)
+	if err != nil {
+		return "", fmt.Errorf("tmux is required but was not found on PATH: %w", err)
+	}
+	return path, nil
 }
 
 // tmuxCommand runs a bounded tmux command on the plugin's dedicated server.

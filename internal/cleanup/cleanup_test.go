@@ -60,10 +60,6 @@ case "$5" in
     exit 0
     ;;
   kill-session)
-    if [ "${FAKE_TMUX_KILL_FAIL:-}" = "1" ]; then
-      printf 'could not kill it\n' >&2
-      exit 1
-    fi
     printf '%s\n' "$7" >> "$FAKE_TMUX_KILLED"
     exit 0
     ;;
