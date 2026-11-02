@@ -18,7 +18,7 @@ import (
 
 const (
 	tmuxBin           = "tmux"
-	commandTimeout    = 3 * time.Second
+	commandTimeout    = 10 * time.Second
 	sessionFieldCount = 3
 
 	attachedState = "attached"
