@@ -156,6 +156,25 @@ func TestRun_PopupShellDispatchesToPopupShellSubcommand(t *testing.T) {
 	}
 }
 
+// cleanup is wired to internal/cleanup.Run (see internal/cleanup for its own test suite); this only
+// asserts main.go actually dispatches to it rather than falling through to an unknown-command
+// branch.
+func TestRun_CleanupDispatchesToCleanupSubcommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdCleanup}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero for cleanup without an action")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "toggle-popup cleanup") {
+		t.Errorf("stderr = %q, want cleanup usage, confirming dispatch", stderr.String())
+	}
+}
+
 func TestRun_VersionPrintsVersionToStdout(t *testing.T) {
 	t.Parallel()
 
