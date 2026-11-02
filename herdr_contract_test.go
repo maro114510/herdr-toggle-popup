@@ -553,7 +553,7 @@ func (c *contract) dumpFailureLog() {
 
 func nonEmptyLines(out string) []string {
 	lines := make([]string, 0, strings.Count(out, "\n"))
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			lines = append(lines, line)
 		}
