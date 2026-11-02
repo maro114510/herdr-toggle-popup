@@ -140,7 +140,7 @@ Run diagnostics before filing a bug.
 "$HERDR_PLUGIN_ROOT/bin/toggle-popup" doctor
 ```
 
-`doctor` prints versions, tool presence, configuration scope, and registry counts. It does not print shell contents.
+`doctor` prints versions, tool presence, configuration scope, and effective popup settings. It does not print shell contents or saved-session contents.
 
 ## Keep secrets out
 
