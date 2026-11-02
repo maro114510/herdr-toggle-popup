@@ -374,7 +374,7 @@ func parseReproducibleBuildCalls(t *testing.T, log string) []reproducibleBuildCa
 	t.Helper()
 
 	var calls []reproducibleBuildCall
-	for _, line := range strings.Split(strings.TrimSpace(log), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(log), "\n") {
 		if line == "" {
 			continue
 		}
@@ -383,7 +383,7 @@ func parseReproducibleBuildCalls(t *testing.T, log string) []reproducibleBuildCa
 			t.Fatalf("unexpected fake go log line: %q", line)
 		}
 		call := reproducibleBuildCall{args: args}
-		for _, field := range strings.Fields(head) {
+		for field := range strings.FieldsSeq(head) {
 			key, value, ok := strings.Cut(field, "=")
 			if !ok {
 				t.Fatalf("unexpected fake go log field: %q", field)
