@@ -17,6 +17,8 @@ import (
 const releaseScript = "scripts/release.sh"
 
 func TestReleaseScriptRefusesToRunOutsideMain(t *testing.T) {
+	t.Parallel()
+
 	dir := newReleaseCheckout(t, "feature")
 
 	output, code := runReleaseScript(t, dir)
@@ -30,6 +32,8 @@ func TestReleaseScriptRefusesToRunOutsideMain(t *testing.T) {
 }
 
 func TestReleaseScriptRefusesDirtyWorkingTree(t *testing.T) {
+	t.Parallel()
+
 	dir := newReleaseCheckout(t, "main")
 	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("work in progress\n"), 0o600); err != nil {
 		t.Fatalf("write untracked file: %v", err)

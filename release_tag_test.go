@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -28,14 +29,16 @@ const (
 // releaseFixture is a repository pair the verification script can run against: a bare origin the
 // fixture pushes history and tags to, and a clone that plays the CI checkout.
 type releaseFixture struct {
-	workDir     string // clone the fixture commits, tags, and pushes from
-	cloneDir    string // clone the verification script runs in
-	signingHome string // GNUPGHOME holding the fixture's signing keys
-	releaseKey  string // fingerprint of the release signing key
-	rotatedKey  string // fingerprint of the key present only after a rotation
+	workDir     string   // clone the fixture commits, tags, and pushes from
+	cloneDir    string   // clone the verification script runs in
+	signingHome string   // GNUPGHOME holding the fixture's signing keys
+	releaseKey  string   // fingerprint of the release signing key
+	rotatedKey  string   // fingerprint of the key present only after a rotation
+	env         []string // environment that keeps git off the machine's own configuration
 }
 
 func TestVerifyReleaseTagAcceptsTagSignedByCommittedKey(t *testing.T) {
+	t.Parallel()
 
 	f := newReleaseFixture(t)
 	f.commitSigningKeys(t, f.releaseKey)
@@ -53,6 +56,7 @@ func TestVerifyReleaseTagAcceptsTagSignedByCommittedKey(t *testing.T) {
 }
 
 func TestVerifyReleaseTagRejectsUnsignedTag(t *testing.T) {
+	t.Parallel()
 
 	f := newReleaseFixture(t)
 	f.commitSigningKeys(t, f.releaseKey)
@@ -70,6 +74,7 @@ func TestVerifyReleaseTagRejectsUnsignedTag(t *testing.T) {
 }
 
 func TestVerifyReleaseTagRejectsTagSignedByKeyOutsideCommittedKeyring(t *testing.T) {
+	t.Parallel()
 
 	f := newReleaseFixture(t)
 	f.commitSigningKeys(t, f.releaseKey)
@@ -87,6 +92,7 @@ func TestVerifyReleaseTagRejectsTagSignedByKeyOutsideCommittedKeyring(t *testing
 }
 
 func TestVerifyReleaseTagRejectsTagOutsideMain(t *testing.T) {
+	t.Parallel()
 
 	f := newReleaseFixture(t)
 	f.commitSigningKeys(t, f.releaseKey)
@@ -106,6 +112,7 @@ func TestVerifyReleaseTagRejectsTagOutsideMain(t *testing.T) {
 }
 
 func TestVerifyReleaseTagReportsMissingSigningKeyOnMain(t *testing.T) {
+	t.Parallel()
 
 	f := newReleaseFixture(t)
 	f.createSignedTag(t, firstReleaseTag, f.releaseKey)
@@ -122,6 +129,7 @@ func TestVerifyReleaseTagReportsMissingSigningKeyOnMain(t *testing.T) {
 }
 
 func TestVerifyReleaseTagAcceptsHistoricalTagAfterKeyRotation(t *testing.T) {
+	t.Parallel()
 
 	f := newReleaseFixture(t)
 	f.commitSigningKeys(t, f.releaseKey, f.rotatedKey)
@@ -146,31 +154,33 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	requireGPG(t)
 
 	root := t.TempDir()
+	emptyConfig := filepath.Join(root, "gitconfig")
+	if err := os.WriteFile(emptyConfig, nil, 0o600); err != nil {
+		t.Fatalf("write empty git config: %v", err)
+	}
 	// gpg-agent refuses to start when its socket path exceeds the platform's sun_path limit, and
 	// t.TempDir() embeds the test name, so the keyring gets a short directory of its own.
+	//nolint:usetesting // t.TempDir() would push the agent socket path past the platform limit.
 	signingHome, err := os.MkdirTemp("", "hgpg-")
 	if err != nil {
 		t.Fatalf("create GNUPGHOME: %v", err)
 	}
 	t.Cleanup(func() {
+		//nolint:gosec // gpgconf is a fixed command; the homedir comes from this test package.
 		_ = exec.Command("gpgconf", "--homedir", signingHome, "--kill", "all").Run()
 		_ = os.RemoveAll(signingHome)
 	})
+
+	// Keeping GIT_CONFIG_GLOBAL empty makes the fixture hermetic: the machine's own git identity,
+	// signing key, and hooks must not decide whether these tests pass.
 	f := &releaseFixture{
 		workDir:     filepath.Join(root, "work"),
 		cloneDir:    filepath.Join(root, "clone"),
 		signingHome: signingHome,
+		releaseKey:  generateSigningKey(t, signingHome, "Release Signer <release@example.com>"),
+		rotatedKey:  generateSigningKey(t, signingHome, "Rotated Signer <rotated@example.com>"),
+		env:         append(os.Environ(), "GIT_CONFIG_GLOBAL="+emptyConfig),
 	}
-	// Keep the fixture hermetic: the machine's own git identity, signing key, and hooks must not
-	// decide whether these tests pass.
-	emptyConfig := filepath.Join(root, "gitconfig")
-	if err := os.WriteFile(emptyConfig, nil, 0o600); err != nil {
-		t.Fatalf("write empty git config: %v", err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", emptyConfig)
-
-	f.releaseKey = generateSigningKey(t, f.signingHome, "Release Signer <release@example.com>")
-	f.rotatedKey = generateSigningKey(t, f.signingHome, "Rotated Signer <rotated@example.com>")
 
 	originDir := filepath.Join(root, "origin.git")
 	f.git(t, root, "init", "--bare", "--initial-branch=main", originDir)
@@ -195,6 +205,7 @@ func (f *releaseFixture) commitSigningKeys(t *testing.T, fingerprints ...string)
 	t.Helper()
 
 	args := append([]string{"--batch", "--homedir", f.signingHome, "--armor", "--export"}, fingerprints...)
+	//nolint:gosec // The keyring export only reads keys this fixture generated.
 	armored, err := exec.Command("gpg", args...).Output()
 	if err != nil {
 		t.Fatalf("export signing keys: %v", err)
@@ -218,9 +229,10 @@ func (f *releaseFixture) commitSigningKeys(t *testing.T, fingerprints ...string)
 func (f *releaseFixture) createSignedTag(t *testing.T, name, fingerprint string) {
 	t.Helper()
 
+	//nolint:gosec // The fingerprint belongs to a key this fixture generated.
 	cmd := exec.Command("git", "-c", "user.signingkey="+fingerprint, "tag", "-s", name, "-m", name)
 	cmd.Dir = f.workDir
-	cmd.Env = append(os.Environ(), "GNUPGHOME="+f.signingHome)
+	cmd.Env = slices.Concat(f.env, []string{"GNUPGHOME=" + f.signingHome})
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("create signed tag %s: %v\n%s", name, err, output)
 	}
@@ -250,6 +262,7 @@ func (f *releaseFixture) runVerification(t *testing.T, tag string) (string, int)
 	//nolint:gosec // The script path and tag come from this test package.
 	cmd := exec.Command("sh", script, tag)
 	cmd.Dir = f.cloneDir
+	cmd.Env = f.env
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -273,6 +286,7 @@ func (f *releaseFixture) git(t *testing.T, dir string, args ...string) {
 	//nolint:gosec // The fixture only runs git against repositories under t.TempDir.
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = f.env
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s in %s: %v\n%s", strings.Join(args, " "), dir, err, output)
 	}
@@ -281,12 +295,14 @@ func (f *releaseFixture) git(t *testing.T, dir string, args ...string) {
 func generateSigningKey(t *testing.T, home, userID string) string {
 	t.Helper()
 
+	//nolint:gosec // Key generation only writes to the fixture's own keyring.
 	generate := exec.Command("gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase", "",
 		"--homedir", home, "--quick-generate-key", userID, "default", "default", "0")
 	if output, err := generate.CombinedOutput(); err != nil {
 		t.Fatalf("generate signing key %q: %v\n%s", userID, err, output)
 	}
 
+	//nolint:gosec // Listing reads only the fixture's own keyring.
 	list := exec.Command("gpg", "--batch", "--homedir", home, "--with-colons", "--list-keys", userID)
 	output, err := list.Output()
 	if err != nil {
