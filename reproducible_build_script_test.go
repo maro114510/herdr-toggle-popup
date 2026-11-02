@@ -156,7 +156,7 @@ func newReproducibleBuildPath(t *testing.T) string {
 	t.Helper()
 	pathDir := newToolPath(t, []string{
 		"cat", "chmod", "cksum", "cut", "dirname", "git", "grep",
-		"mkdir", "mktemp", "pwd", "rm", "tar", "uname",
+		toolMkdir, "mktemp", "pwd", "rm", "tar", "uname",
 	})
 	writeFakeTool(t, pathDir, "go", fakeReproducibleGo)
 	writeFakeTool(t, pathDir, "sha256sum", fakeReproducibleSHA256Sum)
@@ -165,6 +165,7 @@ func newReproducibleBuildPath(t *testing.T) string {
 
 func runReproducibleBuildScript(t *testing.T, pathDir, outDir string, env ...string) (string, string, error) {
 	t.Helper()
+	//nolint:gosec // The test runs the repository's script with a path under t.TempDir().
 	cmd := exec.Command("sh", "scripts/reproducible-build.sh", "1.2.3", outDir)
 	cmd.Env = append(os.Environ(), append([]string{"PATH=" + pathDir}, env...)...)
 	var stdout, stderr bytes.Buffer
