@@ -308,7 +308,7 @@ func generateSigningKey(t *testing.T, home, userID string) string {
 	if err != nil {
 		t.Fatalf("list signing key %q: %v", userID, err)
 	}
-	for _, line := range strings.Split(string(output), "\n") {
+	for line := range strings.SplitSeq(string(output), "\n") {
 		if !strings.HasPrefix(line, "fpr:") {
 			continue
 		}
