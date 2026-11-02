@@ -49,8 +49,12 @@ mkdir -p "$log_dir"
 cleanup() {
   status=$?
   trap - EXIT
-  if [ "$status" -eq 0 ] && [ "$created_work" -eq 1 ]; then
-    rm -rf "$work_root"
+  if [ "$status" -eq 0 ]; then
+    if [ "$created_work" -eq 1 ]; then
+      rm -rf "$work_root"
+    fi
+  else
+    echo "herdr-contract.sh: logs kept in ${log_dir}" >&2
   fi
 }
 trap cleanup EXIT
@@ -115,6 +119,7 @@ bin_dir="${work_root}/bin"
 mkdir -p "$bin_dir"
 herdr_bin="${bin_dir}/herdr"
 url="https://github.com/${herdr_repo}/releases/download/${tag}/${asset}"
+echo "herdr-contract.sh: ${track} track tag=${tag} revision=${revision}"
 echo "herdr-contract.sh: downloading ${url}"
 if ! curl -fsSL --retry 3 --retry-delay 2 -o "$herdr_bin" "$url"; then
   echo "herdr-contract.sh: failed to download ${asset} for ${tag}" >&2
@@ -125,7 +130,10 @@ chmod +x "$herdr_bin"
 # A release asset is not proof that the requested build ran: an older herdr on PATH, a cached
 # download, or a moved tag would otherwise pass. The stable version must match the tag, and a
 # preview must carry the commit its tag names.
-version=$("$herdr_bin" --version)
+if ! version=$("$herdr_bin" --version); then
+  echo "herdr-contract.sh: could not run ${herdr_bin} --version" >&2
+  exit 1
+fi
 case "$track" in
   preview)
     revision_prefix=$(printf '%s' "$revision" | cut -c1-12)
