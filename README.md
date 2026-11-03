@@ -114,7 +114,27 @@ Herdr permits one native popup at a time. Close any existing native popup before
 
 To discard a saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
 
-### Recovering sessions from earlier versions
+### Legacy overlay support
+
+The pre-native zoomed overlay is deprecated. Version 0.6.0 announces its removal and version 0.7.0
+removes it, including the `gc`, `on-pane-closed`, and `on-tab-focused` commands, the `popups.json`
+registry, the overlay-only Herdr client methods, the toggle migration guard, and the
+`popup_size.<entrypoint>` resize steps. The [removal record](./docs/design/legacy-removal.md) lists
+each affected interface, what v0.7.0 removes, and what it leaves on disk.
+
+Removal never deletes an existing file or a saved shell. A `popups.json` left by an earlier release
+and every tmux session on either server stay where they are.
+
+### Recovering a legacy overlay
+
+An overlay from a release before 0.4.1 is an ordinary Herdr plugin pane opened with
+`--placement overlay`, not a tmux session. Close it in Herdr as you would any plugin pane. The tmux
+shell it showed keeps running on the server that holds it, and the steps below recover it.
+
+Version 0.6.0 also closes a visible overlay when the toggle action next runs. Version 0.7.0 removes
+that migration guard, so close a leftover overlay by hand after upgrading from 0.6.0.
+
+### Recovering legacy tmux sessions
 
 Sessions created before the namespace was part of the identity do not carry a namespace, so the plugin never attaches to or deletes them automatically. Recover one by hand:
 
@@ -132,6 +152,13 @@ scope = "directory"
 ```
 
 Use `scope = "tab"` to scope it to a particular tab within a workspace. The popup process reads the invocation context so these scopes also work with native popup panes, which do not receive `HERDR_PANE_ID`.
+
+The directory scope compares the focused pane's cwd as an exact string. It does not clean the path,
+resolve a symlink, or normalize case, so `/work/app`, `/work/app/`, `/work/link-to-app`, and
+`/Work/app` are four different identities even when they reach the same directory. The exact string
+is combined with the namespace and the entrypoint: the same cwd string stays one saved shell across
+workspaces inside one Herdr namespace, and the same string in another namespace opens a different
+saved shell.
 
 ## Close key
 
