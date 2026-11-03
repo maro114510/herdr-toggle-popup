@@ -9,9 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/maro114510/herdr-toggle-popup/internal/doctor"
-	"github.com/maro114510/herdr-toggle-popup/internal/gc"
-	"github.com/maro114510/herdr-toggle-popup/internal/onpaneclosed"
-	"github.com/maro114510/herdr-toggle-popup/internal/ontabfocused"
 	"github.com/maro114510/herdr-toggle-popup/internal/popupshell"
 	"github.com/maro114510/herdr-toggle-popup/internal/sessions"
 	"github.com/maro114510/herdr-toggle-popup/internal/toggle"
@@ -19,10 +16,7 @@ import (
 
 const (
 	cmdToggle       = "toggle"
-	cmdOnPaneClosed = "on-pane-closed"
-	cmdOnTabFocused = "on-tab-focused"
 	cmdPopupShell   = "popup-shell"
-	cmdGc           = "gc"
 	cmdDoctor       = "doctor"
 	cmdSessions     = "sessions"
 	cmdResetCurrent = "reset-current"
@@ -34,10 +28,7 @@ const usage = `Usage: toggle-popup <command>
 
 Commands:
   toggle           Toggle the popup pane
-  on-pane-closed   Handle a pane-closed event
-  on-tab-focused   Handle a tab-focused event
   popup-shell      Run the shell inside the popup pane
-  gc               Prune registry entries whose pane no longer exists
   doctor           Print safe diagnostics for support
   sessions         List saved popup shells with their context
   reset-current    Discard the saved popup shell of the current context
@@ -54,8 +45,8 @@ var version = "dev"
 // cobra's own error/usage output for it).
 var errDispatchFailed = errors.New("dispatch failed")
 
-// dispatchFunc is the signature shared by internal/toggle.Run, internal/onpaneclosed.Run, and
-// internal/popupshell.Run.
+// dispatchFunc is the signature shared by internal/toggle.Run, internal/popupshell.Run, and
+// internal/sessions' command entry points.
 type dispatchFunc func(args []string, stdout, stderr io.Writer) int
 
 func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
@@ -76,10 +67,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 
 	root.AddCommand(
 		newDispatchCmd(cmdToggle, "Toggle the popup pane", toggle.Run),
-		newDispatchCmd(cmdOnPaneClosed, "Handle a pane-closed event", onpaneclosed.Run),
-		newDispatchCmd(cmdOnTabFocused, "Handle a tab-focused event", ontabfocused.Run),
 		newDispatchCmd(cmdPopupShell, "Run the shell inside the popup pane", popupshell.Run),
-		newDispatchCmd(cmdGc, "Prune registry entries whose pane no longer exists", gc.Run),
 		newDoctorCmd(),
 		newDispatchCmd(cmdSessions, "List saved popup shells with their context", sessions.RunList),
 		newDispatchCmd(cmdResetCurrent, "Discard the saved popup shell of the current context", sessions.RunResetCurrent),
