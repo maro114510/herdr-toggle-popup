@@ -156,6 +156,24 @@ func TestRun_PopupShellDispatchesToPopupShellSubcommand(t *testing.T) {
 	}
 }
 
+// sessions is wired to internal/sessions.RunList; this only asserts main.go dispatches to it,
+// using an unexpected argument to get a sessions-specific usage message without touching tmux.
+func TestRun_SessionsDispatchesToSessionsSubcommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"sessions", "unexpected"}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero for an unexpected argument")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "usage: toggle-popup sessions") {
+		t.Errorf("stderr = %q, want the sessions usage line, confirming dispatch", stderr.String())
+	}
+}
+
 func TestRun_VersionPrintsVersionToStdout(t *testing.T) {
 	t.Parallel()
 
