@@ -137,6 +137,42 @@ func TestRun_ReportsNormalPluginEnvironment(t *testing.T) {
 	}
 }
 
+// TestRun_OmitsLegacyRegistryAndResizeDiagnostics pins the removal outcome for doctor: the legacy
+// registry and popup_size configuration no longer exist, so diagnostics must not report them.
+func TestRun_OmitsLegacyRegistryAndResizeDiagnostics(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, binDir, "herdr")
+	writeExecutable(t, binDir, "tmux")
+	t.Setenv("HERDR_BIN_PATH", "")
+	t.Setenv("PATH", binDir)
+
+	pluginRoot := t.TempDir()
+	writeFile(t, pluginRoot, "herdr-plugin.toml", "version = \"0.2.1\"\n")
+	t.Setenv("HERDR_PLUGIN_ROOT", pluginRoot)
+
+	configDir := t.TempDir()
+	writeFile(t, configDir, "config.toml", "scope = \"workspace\"\npopup_size.shell = \"right:0.5:3\"\n")
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
+
+	stateDir := t.TempDir()
+	writeFile(t, stateDir, "popups.json", `{"version":1,"popups":{}}`)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
+
+	code, stdout, stderr := runDoctor(t)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	for _, unwanted := range []string{"state:", "popup_size"} {
+		if strings.Contains(stdout, unwanted) {
+			t.Errorf("stdout = %q, want it to not contain %q", stdout, unwanted)
+		}
+	}
+}
+
 //nolint:paralleltest // The test installs the plugin environment process-wide.
 func TestRun_DevelopmentBinaryIsReportedAsDevelopmentBuild(t *testing.T) {
 	manifestVersionEnvironment(t, "0.5.1")
