@@ -125,6 +125,12 @@ shows `ownership=unknown` until the next popup reuses the session, which fills t
 sessions created by the plugin are listed; a session another tool created on the dedicated server is
 not a management target.
 
+`toggle-popup reset-current` discards the saved shell that the current namespace, scope, and
+entrypoint resolve to, and the next popup opens a new shell. It removes only that session, so
+another namespace or scope keeps its own. An incomplete context deletes nothing, and a target that
+does not exist is reported without touching another session. Deleting a session ends the shell for
+every client attached to it, so an attached session is refused unless `--force` is given.
+
 ### Legacy overlay support
 
 The pre-native zoomed overlay is deprecated. Version 0.6.0 announces its removal and version 0.7.0
