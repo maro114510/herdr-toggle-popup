@@ -79,10 +79,6 @@ func setupRealServerEnvironment(t *testing.T, tmuxPath string) string {
 	writeFile(t, configDir, "config.toml", defaultConfig)
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
 
-	stateDir := t.TempDir()
-	writeFile(t, stateDir, "popups.json", `{"version":1,"popups":{}}`)
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
-
 	return filepath.Join(socketDir, "tmux-"+strconv.Itoa(os.Getuid()), popupSocketName)
 }
 

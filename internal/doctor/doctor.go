@@ -3,7 +3,6 @@ package doctor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -22,17 +21,14 @@ import (
 )
 
 const (
-	herdrBinPathEnvVar   = "HERDR_BIN_PATH"
-	pluginRootEnvVar     = "HERDR_PLUGIN_ROOT"
-	configDirEnvVar      = "HERDR_PLUGIN_CONFIG_DIR"
-	stateDirEnvVar       = "HERDR_PLUGIN_STATE_DIR"
-	defaultHerdrBin      = "herdr"
-	tmuxBin              = "tmux"
-	infocmpBin           = "infocmp"
-	manifestFile         = "herdr-plugin.toml"
-	configFile           = "config.toml"
-	stateFile            = "popups.json"
-	supportedStateFormat = 1
+	herdrBinPathEnvVar = "HERDR_BIN_PATH"
+	pluginRootEnvVar   = "HERDR_PLUGIN_ROOT"
+	configDirEnvVar    = "HERDR_PLUGIN_CONFIG_DIR"
+	defaultHerdrBin    = "herdr"
+	tmuxBin            = "tmux"
+	infocmpBin         = "infocmp"
+	manifestFile       = "herdr-plugin.toml"
+	configFile         = "config.toml"
 
 	diagnosticCommandTimeout = 3 * time.Second
 	clientFormat             = "#{client_session}\t#{client_name}\t#{client_termname}\t#{client_width}x#{client_height}\t#{client_flags}"
@@ -54,13 +50,7 @@ type manifest struct {
 }
 
 type configFileData struct {
-	Scope     string            `toml:"scope"`
-	PopupSize map[string]string `toml:"popup_size"`
-}
-
-type stateRegistry struct {
-	Version int                       `json:"version"`
-	Popups  map[string]map[string]any `json:"popups"`
+	Scope string `toml:"scope"`
 }
 
 // Run prints diagnostics and returns a process-style exit code. Missing tools or plugin
@@ -85,7 +75,6 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 	ms := newMsProbe()
 	diagnoseMs(stdout, ms, term)
 	diagnoseTmux(stdout, tmuxPath, session, cfg, ms)
-	diagnoseState(stdout)
 
 	return 0
 }
@@ -210,7 +199,7 @@ func diagnoseConfigFile(stdout io.Writer, dir string) {
 	if parsed.Scope == "" {
 		parsed.Scope = "workspace"
 	}
-	_, _ = fmt.Fprintf(stdout, "config: ok (scope=%s, popup_size entries=%d)\n", sanitizeText(parsed.Scope), len(parsed.PopupSize))
+	_, _ = fmt.Fprintf(stdout, "config: ok (scope=%s)\n", sanitizeText(parsed.Scope))
 }
 
 // diagnoseConnection reports the namespace, scope, and saved session the plugin would use and
@@ -537,35 +526,4 @@ func sanitizeText(value string) string {
 			return r
 		}
 	}, value)
-}
-
-func diagnoseState(stdout io.Writer) {
-	dir := os.Getenv(stateDirEnvVar)
-	if dir == "" {
-		_, _ = fmt.Fprintf(stdout, "state: missing (%s not set)\n", stateDirEnvVar)
-		return
-	}
-
-	path := filepath.Clean(filepath.Join(dir, stateFile))
-	//nolint:gosec // path is HERDR_PLUGIN_STATE_DIR joined with the fixed stateFile name.
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			_, _ = fmt.Fprintf(stdout, "state: missing (%s not found)\n", stateFile)
-			return
-		}
-		_, _ = fmt.Fprintln(stdout, "state: error (file not readable)")
-		return
-	}
-
-	var parsed stateRegistry
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		_, _ = fmt.Fprintln(stdout, "state: error (parse failed)")
-		return
-	}
-	if parsed.Version != supportedStateFormat || parsed.Popups == nil {
-		_, _ = fmt.Fprintln(stdout, "state: error (unsupported format)")
-		return
-	}
-	_, _ = fmt.Fprintf(stdout, "state: ok (version=%d, entries=%d)\n", parsed.Version, len(parsed.Popups))
 }
