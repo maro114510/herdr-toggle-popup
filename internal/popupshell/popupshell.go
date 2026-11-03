@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"github.com/maro114510/herdr-toggle-popup/internal/config"
@@ -22,6 +23,12 @@ const (
 	SocketName = "herdr-toggle-popup"
 	// CloseKeyOption is the session option that records the key closing that session.
 	CloseKeyOption = "@herdr-close-key"
+	// NamespaceOption is the session option that records the saved shell's Herdr namespace.
+	NamespaceOption = "@herdr-namespace"
+	// ScopeOption is the session option that records the scope the saved shell was opened with.
+	ScopeOption = "@herdr-scope"
+	// EntrypointOption is the session option that records the saved shell's entrypoint.
+	EntrypointOption = "@herdr-entrypoint"
 	// DefaultEntrypoint is the manifest's popup entrypoint.
 	DefaultEntrypoint = "shell"
 
@@ -105,7 +112,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 // loadConfig reads config.toml and reports every fallback warning to stderr with the command
-// prefix, including an unrecognized scope that falls back to workspace.
+// prefix. An unrecognized scope falls back to workspace, so every caller resolves the same
+// effective scope.
 func loadConfig(stderr io.Writer) config.Config {
 	cfg := config.Load()
 	for _, warning := range cfg.Warnings {
@@ -113,6 +121,7 @@ func loadConfig(stderr io.Writer) config.Config {
 	}
 	if !config.IsValidScope(cfg.Scope) {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: invalid scope %q in config; falling back to workspace scope\n", cfg.Scope)
+		cfg.Scope = "workspace"
 	}
 	return cfg
 }
@@ -124,7 +133,7 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 	}
 
 	cfg := loadConfig(stderr)
-	sessionKey, cwd, err := tmuxSessionKey(cfg.Scope, entrypoint)
+	identity, err := ResolveIdentity(cfg.Scope, entrypoint)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1
@@ -152,7 +161,11 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 		return 1
 	}
 
-	argv := []string{shellBin, "-c", tmuxAttachScript, "popup-shell", sessionName(sessionKey), cwd, shellPath, tmuxPath, cfg.CloseKey}
+	argv := []string{
+		shellBin, "-c", tmuxAttachScript,
+		"popup-shell", identity.Session, identity.Cwd, shellPath, tmuxPath, cfg.CloseKey,
+		identity.Namespace, cfg.Scope, entrypoint,
+	}
 	if err := execProcess(shPath, argv, os.Environ()); err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1
@@ -217,4 +230,16 @@ func namespaceForSocketPath(socketPath string) string {
 func sessionName(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return sessionPrefix + hex.EncodeToString(sum[:sessionHashBytes])
+}
+
+// IsSessionName reports whether name is one this plugin creates: the session prefix followed by a
+// lowercase hex digest. A session on the dedicated server outside that shape is not a management
+// target.
+func IsSessionName(name string) bool {
+	digest, ok := strings.CutPrefix(name, sessionPrefix)
+	if !ok || len(digest) != sessionHashBytes*2 || strings.ToLower(digest) != digest {
+		return false
+	}
+	_, err := hex.DecodeString(digest)
+	return err == nil
 }

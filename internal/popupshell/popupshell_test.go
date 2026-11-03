@@ -142,6 +142,7 @@ func wantTmuxWrapperArgv(session string, shell string, closeKey string) []string
 	return []string{
 		shellBin, "-c", tmuxAttachScript,
 		"popup-shell", session, focusedCwd, shell, testTmuxBin, closeKey,
+		namespaceForSocketPath(testSocketPath), scopeWorkspace, defaultEntrypoint,
 	}
 }
 
@@ -242,7 +243,8 @@ func runAttachScript(t *testing.T, env []string, tmuxPath, session, closeKey str
 	t.Helper()
 
 	//nolint:gosec // The test drives the production attach script with fixed arguments.
-	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", session, t.TempDir(), "/bin/sh", tmuxPath, closeKey)
+	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", session, t.TempDir(), "/bin/sh", tmuxPath, closeKey,
+		namespaceForSocketPath(testSocketPath), scopeWorkspace, defaultEntrypoint)
 	cmd.Env = env
 	_ = cmd.Run()
 }
