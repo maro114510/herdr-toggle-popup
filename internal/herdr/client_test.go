@@ -14,6 +14,8 @@ const (
 	testCwd        = "/focused/cwd"
 	testWidth      = "100%"
 	testHeight     = "100%"
+
+	fullPopupArgv = "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
 )
 
 // Test list:
@@ -74,7 +76,7 @@ func TestNewClient_FallsBackToPathHerdr(t *testing.T) {
 	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd, testWidth, testHeight); err != nil {
 		t.Fatalf("PluginPopupOpen() error = %v, want success via PATH-resolved herdr", err)
 	}
-	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
+	want := fullPopupArgv
 	if got := readLog(t, logPath); got != want {
 		t.Errorf("log = %q, want %q", got, want)
 	}
@@ -88,7 +90,7 @@ func TestPluginPopupOpen_Success(t *testing.T) {
 	if err := c.PluginPopupOpen(t.Context(), testPluginID, testEntrypoint, testCwd, testWidth, testHeight); err != nil {
 		t.Fatalf("PluginPopupOpen() error = %v", err)
 	}
-	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
+	want := fullPopupArgv
 	if got := readLog(t, logPath); got != want {
 		t.Errorf("argv = %q, want %q", got, want)
 	}
@@ -159,7 +161,7 @@ func TestHerdrCLIContractSmoke_Fake(t *testing.T) {
 		t.Fatalf("PluginPopupOpen() error = %v", err)
 	}
 
-	want := "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width 100% --height 100% --cwd /focused/cwd --focus\n"
+	want := fullPopupArgv
 	if got := readLog(t, logPath); got != want {
 		t.Errorf("fake Herdr argv log = %q, want %q", got, want)
 	}

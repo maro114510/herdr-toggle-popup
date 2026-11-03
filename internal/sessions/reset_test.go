@@ -52,9 +52,9 @@ func currentSession(t *testing.T) string {
 
 func ownership(namespace, scope string) map[string]string {
 	return map[string]string{
-		"@herdr-namespace":  namespace,
-		"@herdr-scope":      scope,
-		"@herdr-entrypoint": "shell",
+		optionNamespace:  namespace,
+		optionScope:      scope,
+		optionEntrypoint: entrypointShell,
 	}
 }
 
@@ -69,7 +69,6 @@ func runResetCurrent(t *testing.T, args ...string) (int, string, string) {
 func serverSessionNames(t *testing.T) map[string]bool {
 	t.Helper()
 
-	//nolint:gosec // The test controls the tmux binary and every argument.
 	cmd := exec.Command("tmux", "-L", sessionTestTmuxName, "-f", "/dev/null", "list-sessions", "-F", "#{session_name}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -104,6 +103,7 @@ func assertSessionPresent(t *testing.T, name string) {
 	}
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunResetCurrentRemovesOnlyTheCurrentContextSession(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -130,6 +130,7 @@ func TestRunResetCurrentRemovesOnlyTheCurrentContextSession(t *testing.T) {
 	assertSessionPresent(t, resetSessionOtherNamespace)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunResetCurrentRefusesAnAttachedSessionWithoutForce(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -186,6 +187,7 @@ func TestRunResetCurrentDeletesNothingWhenTheContextIsIncomplete(t *testing.T) {
 	assertSessionPresent(t, resetSessionOther)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunResetCurrentReportsAMissingTargetWithoutTouchingOtherSessions(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -206,6 +208,7 @@ func TestRunResetCurrentReportsAMissingTargetWithoutTouchingOtherSessions(t *tes
 	assertSessionPresent(t, resetSessionOther)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunResetCurrentRejectsUnknownArguments(t *testing.T) {
 	code, stdout, stderr := runResetCurrent(t, "--force", "extra")
 
@@ -224,8 +227,7 @@ func TestRunResetCurrentRejectsUnknownArguments(t *testing.T) {
 func attachDetachedServerClient(t *testing.T, session string) {
 	t.Helper()
 
-	//nolint:gosec // The test controls the tmux binary and every argument.
-	cmd := exec.Command("tmux", "-L", popupshell.SocketName, "-f", "/dev/null", "attach-session", "-t", session)
+	cmd := exec.Command("tmux", "-L", popupshell.SocketName, "-f", "/dev/null", "attach-session", "-t", session) //nolint:gosec // the test controls the tmux binary and every argument
 	cmd.Env = os.Environ()
 	master, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80, X: 0, Y: 0})
 	if err != nil {

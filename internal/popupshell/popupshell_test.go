@@ -1321,6 +1321,7 @@ func TestDirectoryScopeComparesExactCwdString(t *testing.T) {
 		}
 	})
 
+	//nolint:paralleltest // uses t.Setenv through keyFor.
 	t.Run("different spellings of one directory keep distinct identities", func(t *testing.T) {
 		spellings := []string{"/focused/cwd", "/focused/cwd/", "/focused/link-to-cwd", "/Focused/cwd"}
 		seen := make(map[string]string, len(spellings))

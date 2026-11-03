@@ -32,6 +32,7 @@ func runCleanup(t *testing.T, args ...string) (int, string, string) {
 	return code, stdout.String(), stderr.String()
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunCleanupRemovesOnlySelectedSessions(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -53,6 +54,7 @@ func TestRunCleanupRemovesOnlySelectedSessions(t *testing.T) {
 	assertSessionPresent(t, cleanupBystander)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunCleanupRejectsOwnershipUnknownSessions(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -74,6 +76,7 @@ func TestRunCleanupRejectsOwnershipUnknownSessions(t *testing.T) {
 	assertSessionPresent(t, cleanupBystander)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunCleanupRejectsNonPluginSessions(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -95,6 +98,7 @@ func TestRunCleanupRejectsNonPluginSessions(t *testing.T) {
 	assertSessionPresent(t, cleanupBystander)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunCleanupRefusesAttachedSessionsWithoutForce(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -130,6 +134,7 @@ func TestRunCleanupRefusesAttachedSessionsWithoutForce(t *testing.T) {
 	assertSessionPresent(t, cleanupBystander)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunCleanupDeletesNothingWhenATargetCannotBeValidated(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -149,6 +154,7 @@ func TestRunCleanupDeletesNothingWhenATargetCannotBeValidated(t *testing.T) {
 	assertSessionPresent(t, cleanupTarget)
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunCleanupRejectsMissingTargets(t *testing.T) {
 	code, stdout, stderr := runCleanup(t)
 

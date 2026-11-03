@@ -48,14 +48,13 @@ func writeExecutable(t *testing.T, dir, name string) string {
 	return path
 }
 
-func writeFile(t *testing.T, dir, name, content string) string {
+func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return path
 }
 
 func runDoctor(t *testing.T) (int, string, string) {

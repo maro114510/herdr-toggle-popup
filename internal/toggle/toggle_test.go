@@ -195,7 +195,7 @@ func TestRunLeavesLegacyOverlayAndRegistryAlone(t *testing.T) {
 	if got := readLog(t, logPath); got != fullScreenPopupArgv {
 		t.Errorf("herdr calls = %q, want only the native popup open", got)
 	}
-	if got, err := os.ReadFile(statePath); err != nil || string(got) != legacyRegistry {
+	if got, err := os.ReadFile(statePath); err != nil || string(got) != legacyRegistry { //nolint:gosec // statePath is created by this test under t.TempDir
 		t.Errorf("popups.json = %q, err = %v, want the file untouched", string(got), err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "popups.lock")); err == nil {

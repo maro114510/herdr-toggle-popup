@@ -28,6 +28,10 @@ const (
 	sessionOwnedSecond  = "herdr-toggle-popup-00000000000000000000000000000002"
 	sessionLegacy       = "herdr-toggle-popup-00000000000000000000000000000003"
 	sessionNonPlugin    = "notes-00000000000000000000000000000000"
+	optionNamespace     = "@herdr-namespace"
+	optionScope         = "@herdr-scope"
+	optionEntrypoint    = "@herdr-entrypoint"
+	entrypointShell     = "shell"
 	namespaceAlpha      = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	namespaceBeta       = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	sessionTestTmuxName = popupshell.SocketName
@@ -63,7 +67,6 @@ func isolatedServer(t *testing.T) {
 	t.Setenv("TMUX_TMPDIR", dir)
 	t.Setenv("TMUX", "")
 	t.Cleanup(func() {
-		//nolint:gosec // The test controls the tmux binary and every argument.
 		_ = exec.Command("tmux", "-L", sessionTestTmuxName, "-f", "/dev/null", "kill-server").Run()
 	})
 }
@@ -101,19 +104,20 @@ func runList(t *testing.T, args ...string) (int, string, string) {
 	return code, stdout.String(), stderr.String()
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunListShowsOwnershipContext(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
 
 	newServerSession(t, sessionOwnedFirst, map[string]string{
-		"@herdr-namespace":  namespaceAlpha,
-		"@herdr-scope":      "workspace",
-		"@herdr-entrypoint": "shell",
+		optionNamespace:  namespaceAlpha,
+		optionScope:      "workspace",
+		optionEntrypoint: entrypointShell,
 	})
 	newServerSession(t, sessionOwnedSecond, map[string]string{
-		"@herdr-namespace":  namespaceBeta,
-		"@herdr-scope":      "directory",
-		"@herdr-entrypoint": "shell",
+		optionNamespace:  namespaceBeta,
+		optionScope:      "directory",
+		optionEntrypoint: entrypointShell,
 	})
 	newServerSession(t, sessionLegacy, nil)
 	newServerSession(t, sessionNonPlugin, nil)
@@ -139,6 +143,7 @@ func TestRunListShowsOwnershipContext(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunListReportsAbsentServerWithoutStartingOne(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -155,11 +160,12 @@ func TestRunListReportsAbsentServerWithoutStartingOne(t *testing.T) {
 	if want := "sessions: none (tmux server absent)\n"; stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
 	}
-	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) { //nolint:gosec // socketPath comes from TMUX_TMPDIR and a fixed suffix
 		t.Errorf("server socket %q exists after listing (stat err = %v), want no server started", socketPath, err)
 	}
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunListReportsNoPluginSessionsOnServerWithOnlyNonPluginSessions(t *testing.T) {
 	tmuxOnPath(t)
 	isolatedServer(t)
@@ -175,6 +181,7 @@ func TestRunListReportsNoPluginSessionsOnServerWithOnlyNonPluginSessions(t *test
 	}
 }
 
+//nolint:paralleltest // uses t.Setenv through the server helpers.
 func TestRunListRejectsUnexpectedArguments(t *testing.T) {
 	code, stdout, stderr := runList(t, "extra")
 

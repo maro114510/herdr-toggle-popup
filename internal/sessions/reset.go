@@ -71,7 +71,7 @@ func findSession(list []Session, name string) (Session, bool) {
 			return session, true
 		}
 	}
-	return Session{}, false
+	return Session{}, false //nolint:exhaustruct // the false flag carries the absence
 }
 
 // loadConfig reads config.toml and reports every fallback warning to stderr with the command
