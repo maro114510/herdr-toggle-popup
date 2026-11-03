@@ -44,7 +44,7 @@ An overlay from a release before 0.4.1 is an ordinary Herdr plugin pane opened w
 2. The tmux shell it showed keeps running on the server that holds it. Recover or remove it with
    the session steps below.
 
-v0.6.0 closes a visible overlay when the toggle action next runs. v0.7.0 removes that migration
+v0.6.0 closes a visible overlay when the toggle action next runs. v0.7.0 removed that migration
 guard, so close a leftover overlay by hand after upgrading from 0.6.0.
 
 ### A legacy tmux session
