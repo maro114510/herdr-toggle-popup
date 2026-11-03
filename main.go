@@ -25,6 +25,7 @@ const (
 	cmdGc           = "gc"
 	cmdDoctor       = "doctor"
 	cmdSessions     = "sessions"
+	cmdResetCurrent = "reset-current"
 	cmdVersion      = "version"
 )
 
@@ -38,6 +39,7 @@ Commands:
   gc               Prune registry entries whose pane no longer exists
   doctor           Print safe diagnostics for support
   sessions         List saved popup shells with their context
+  reset-current    Discard the saved popup shell of the current context
   version          Print the toggle-popup version
 `
 
@@ -78,6 +80,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 		newDispatchCmd(cmdGc, "Prune registry entries whose pane no longer exists", gc.Run),
 		newDoctorCmd(),
 		newDispatchCmd(cmdSessions, "List saved popup shells with their context", sessions.RunList),
+		newDispatchCmd(cmdResetCurrent, "Discard the saved popup shell of the current context", sessions.RunResetCurrent),
 		newVersionCmd(),
 	)
 
