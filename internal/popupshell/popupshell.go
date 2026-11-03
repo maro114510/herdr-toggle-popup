@@ -80,6 +80,8 @@ func ResolveIdentity(scopeMode, entrypoint string) (SessionIdentity, error) {
 // The key and binding are reapplied on every connection, so a change applies on the next open.
 // The window size is explicitly the smallest attached client's, because the default policy differs
 // between supported tmux versions; it is reapplied on every connection to correct any drift.
+// The namespace, scope, and entrypoint are recorded on every connection, so the sessions command
+// can report ownership without reversing the hashed session name.
 // Legacy sessions without the namespace are never attached to or removed.
 const tmuxAttachScript = `if "$4" -L herdr-toggle-popup -f /dev/null has-session -t "$1" 2>/dev/null; then
   "$4" -L herdr-toggle-popup -f /dev/null set-option -s set-clipboard external
@@ -90,6 +92,9 @@ else
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" mouse on
 fi
 "$4" -L herdr-toggle-popup -f /dev/null set-option -w -t "$1" window-size smallest
+"$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-namespace "$6"
+"$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-scope "$7"
+"$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-entrypoint "$8"
 key="$5"
 "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-close-key "$key"
 if ! "$4" -L herdr-toggle-popup -f /dev/null bind-key -n "$key" if-shell -F "#{==:#{@herdr-close-key},$key}" "detach-client" "send-keys $key"; then
