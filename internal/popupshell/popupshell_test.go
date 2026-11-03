@@ -900,6 +900,75 @@ func TestTmuxAttachScriptUpdatesWindowSizeWhenAClientResizes(t *testing.T) {
 	wantPopupWindowSize(t, env, tmuxPath, tinyClientCols, tinyClientRows)
 }
 
+// TestTmuxAttachScriptRecordsSessionOwnershipMetadata covers a new session: the sessions command
+// needs the namespace, scope, and entrypoint to explain what the hashed session name belongs to.
+func TestTmuxAttachScriptRecordsSessionOwnershipMetadata(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+	session := sessionName(namespacedKey("workspace:ws1:shell"))
+
+	runAttachScript(t, env, tmuxPath, session, testCloseKey)
+
+	want := map[string]string{
+		NamespaceOption:  namespaceForSocketPath(testSocketPath),
+		ScopeOption:      scopeWorkspace,
+		EntrypointOption: defaultEntrypoint,
+	}
+	for option, wantValue := range want {
+		if got := sessionOption(t, env, tmuxPath, session, option); got != wantValue {
+			t.Errorf("%s = %q, want %q", option, got, wantValue)
+		}
+	}
+}
+
+// TestTmuxAttachScriptRefreshesSessionOwnershipMetadataOnEveryConnection covers a session that
+// predates the metadata or was recorded under another context: a connection must not inherit
+// whatever the session held before.
+func TestTmuxAttachScriptRefreshesSessionOwnershipMetadataOnEveryConnection(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+	session := sessionName(namespacedKey("workspace:ws1:shell"))
+
+	dedicatedTmux(t, env, tmuxPath, "new-session", "-d", "-s", session, "-c", t.TempDir(), "/bin/sh")
+	runAttachScript(t, env, tmuxPath, session, testCloseKey)
+	if got := sessionOption(t, env, tmuxPath, session, NamespaceOption); got != namespaceForSocketPath(testSocketPath) {
+		t.Errorf("%s after the first connection = %q, want it recorded, not guessed", NamespaceOption, got)
+	}
+
+	for _, option := range []string{NamespaceOption, ScopeOption, EntrypointOption} {
+		dedicatedTmux(t, env, tmuxPath, "set-option", "-t", session, option, "stale")
+	}
+	runAttachScript(t, env, tmuxPath, session, testCloseKey)
+
+	want := map[string]string{
+		NamespaceOption:  namespaceForSocketPath(testSocketPath),
+		ScopeOption:      scopeWorkspace,
+		EntrypointOption: defaultEntrypoint,
+	}
+	for option, wantValue := range want {
+		if got := sessionOption(t, env, tmuxPath, session, option); got != wantValue {
+			t.Errorf("%s after the second connection = %q, want %q", option, got, wantValue)
+		}
+	}
+}
+
+func sessionOption(t *testing.T, env []string, tmuxPath, session, option string) string {
+	t.Helper()
+
+	out := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", session, option))
+	value, ok := strings.CutPrefix(out, option+" ")
+	if !ok {
+		t.Fatalf("show-options %s = %q, want %q followed by a value", option, out, option)
+	}
+	return value
+}
+
 //nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
 func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	setupEnv(t)
