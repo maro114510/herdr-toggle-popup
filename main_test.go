@@ -174,6 +174,25 @@ func TestRun_SessionsDispatchesToSessionsSubcommand(t *testing.T) {
 	}
 }
 
+// reset-current is wired to internal/sessions.RunResetCurrent; this only asserts main.go
+// dispatches to it, using an incomplete context to get a reset-current-specific error.
+func TestRun_ResetCurrentDispatchesToResetCurrentSubcommand(t *testing.T) {
+	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", "{}")
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"reset-current"}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Error("exit code = 0, want non-zero for an incomplete context")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "reset-current:") {
+		t.Errorf("stderr = %q, want a reset-current-prefixed error, confirming dispatch", stderr.String())
+	}
+}
+
 func TestRun_VersionPrintsVersionToStdout(t *testing.T) {
 	t.Parallel()
 
