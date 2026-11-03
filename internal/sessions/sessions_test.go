@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -134,5 +136,55 @@ func TestRunListShowsOwnershipContext(t *testing.T) {
 	}, "\n")
 	if stdout != want {
 		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+}
+
+func TestRunListReportsAbsentServerWithoutStartingOne(t *testing.T) {
+	tmuxOnPath(t)
+	isolatedServer(t)
+	socketPath := filepath.Join(os.Getenv("TMUX_TMPDIR"), "tmux-"+strconv.Itoa(os.Getuid()), sessionTestTmuxName)
+
+	code, stdout, stderr := runList(t)
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	if want := "sessions: none (tmux server absent)\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Errorf("server socket %q exists after listing (stat err = %v), want no server started", socketPath, err)
+	}
+}
+
+func TestRunListReportsNoPluginSessionsOnServerWithOnlyNonPluginSessions(t *testing.T) {
+	tmuxOnPath(t)
+	isolatedServer(t)
+	newServerSession(t, sessionNonPlugin, nil)
+
+	code, stdout, stderr := runList(t)
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr)
+	}
+	if want := "sessions: none\n"; stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+}
+
+func TestRunListRejectsUnexpectedArguments(t *testing.T) {
+	code, stdout, stderr := runList(t, "extra")
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero")
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	if want := "usage: toggle-popup sessions\n"; stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
 	}
 }
