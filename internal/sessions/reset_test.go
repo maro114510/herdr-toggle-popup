@@ -69,8 +69,18 @@ func runResetCurrent(t *testing.T, args ...string) (int, string, string) {
 func serverSessionNames(t *testing.T) map[string]bool {
 	t.Helper()
 
+	//nolint:gosec // The test controls the tmux binary and every argument.
+	cmd := exec.Command("tmux", "-L", sessionTestTmuxName, "-f", "/dev/null", "list-sessions", "-F", "#{session_name}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), "no server running") {
+			return map[string]bool{}
+		}
+		t.Fatalf("list sessions: %v\n%s", err, out)
+	}
+
 	names := make(map[string]bool)
-	for line := range strings.SplitSeq(serverTmux(t, "list-sessions", "-F", "#{session_name}"), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			names[line] = true
 		}
