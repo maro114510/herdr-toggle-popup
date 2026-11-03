@@ -193,6 +193,24 @@ func TestRun_ResetCurrentDispatchesToResetCurrentSubcommand(t *testing.T) {
 	}
 }
 
+// cleanup is wired to internal/sessions.RunCleanup; this only asserts main.go dispatches to it,
+// using a missing target to get a cleanup-specific usage message without touching tmux.
+func TestRun_CleanupDispatchesToCleanupSubcommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"cleanup"}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Error("exit code = 0, want non-zero for a cleanup call without a target")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "usage: toggle-popup cleanup") {
+		t.Errorf("stderr = %q, want the cleanup usage line, confirming dispatch", stderr.String())
+	}
+}
+
 func TestRun_VersionPrintsVersionToStdout(t *testing.T) {
 	t.Parallel()
 
