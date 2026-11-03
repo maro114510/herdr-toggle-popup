@@ -211,6 +211,29 @@ func TestRun_CleanupDispatchesToCleanupSubcommand(t *testing.T) {
 	}
 }
 
+// TestRun_RemovedLegacyCommandsAreUnknown pins the removal outcome for the overlay-era commands:
+// none of them may remain dispatchable from the installed CLI.
+func TestRun_RemovedLegacyCommandsAreUnknown(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"gc", "on-pane-closed", "on-tab-focused"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout, stderr bytes.Buffer
+
+			code := run([]string{command}, &stdout, &stderr)
+
+			if code == 0 {
+				t.Errorf("exit code = 0, want non-zero for a removed command")
+			}
+			if !strings.Contains(stderr.String(), "unknown command") {
+				t.Errorf("stderr = %q, want an unknown-command error", stderr.String())
+			}
+		})
+	}
+}
+
 func TestRun_VersionPrintsVersionToStdout(t *testing.T) {
 	t.Parallel()
 
