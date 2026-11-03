@@ -1213,6 +1213,56 @@ func TestTmuxSessionKeySeparatesNamespaces(t *testing.T) {
 	}
 }
 
+// TestDirectoryScopeComparesExactCwdString pins the directory-scope identity comparison: the
+// focused pane's cwd is used as-is, without cleaning, symlink resolution, or case folding, and the
+// same string stays one identity across workspaces in one namespace.
+func TestDirectoryScopeComparesExactCwdString(t *testing.T) {
+	t.Setenv(socketPathEnvVar, testSocketPath)
+	t.Setenv(workspaceIDEnvVar, workspaceID)
+
+	keyFor := func(t *testing.T, cwd string) string {
+		t.Helper()
+
+		t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"`+cwd+`"}`)
+		key, _, err := tmuxSessionKey(scopeDirectory, defaultEntrypoint)
+		if err != nil {
+			t.Fatalf("tmuxSessionKey(%q) err = %v, want nil", cwd, err)
+		}
+		return key
+	}
+
+	t.Run("same cwd string in two workspaces shares one identity", func(t *testing.T) {
+		t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd"}`)
+		keyInWorkspaceOne, _, err := tmuxSessionKey(scopeDirectory, defaultEntrypoint)
+		if err != nil {
+			t.Fatalf("workspace one: err = %v, want nil", err)
+		}
+
+		t.Setenv(contextEnvVar, `{"workspace_id":"ws2","focused_pane_cwd":"/focused/cwd"}`)
+		keyInWorkspaceTwo, _, err := tmuxSessionKey(scopeDirectory, defaultEntrypoint)
+		if err != nil {
+			t.Fatalf("workspace two: err = %v, want nil", err)
+		}
+
+		if keyInWorkspaceOne != keyInWorkspaceTwo {
+			t.Errorf("keys = %q and %q, want the same cwd string to share one identity across workspaces",
+				keyInWorkspaceOne, keyInWorkspaceTwo)
+		}
+	})
+
+	t.Run("different spellings of one directory keep distinct identities", func(t *testing.T) {
+		spellings := []string{"/focused/cwd", "/focused/cwd/", "/focused/link-to-cwd", "/Focused/cwd"}
+		seen := make(map[string]string, len(spellings))
+		for _, spelling := range spellings {
+			key := keyFor(t, spelling)
+			if other, exists := seen[key]; exists {
+				t.Errorf("cwd %q and %q share identity %q, want distinct identities", other, spelling, key)
+			}
+			seen[key] = spelling
+		}
+	})
+}
+
 func TestRunExecsTmuxSessionForTabScope(t *testing.T) {
 	configDir := setupEnv(t)
 	writeConfig(t, configDir, "scope = \"tab\"\n")
