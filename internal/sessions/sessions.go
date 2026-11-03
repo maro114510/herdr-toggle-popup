@@ -29,6 +29,10 @@ const (
 	// noServerMarker is what tmux reports when the dedicated server has never started. Listing
 	// must treat it as an empty result, not as a failure, and must not start the server.
 	noServerMarker = "no server running"
+	// noServerConnectionMarker and missingSocketMarker are the macOS report for an absent server
+	// whose socket directory has never been created.
+	noServerConnectionMarker = "error connecting to"
+	missingSocketMarker      = "No such file or directory"
 )
 
 // Session is one saved shell on the dedicated tmux server.
@@ -96,7 +100,7 @@ func List() (sessions []Session, present bool, err error) {
 
 	stdout, stderr, runErr := run(tmuxPath, "list-sessions", "-F", listSessionsFormat)
 	if runErr != nil {
-		if strings.Contains(string(stderr), noServerMarker) {
+		if serverAbsent(string(stderr)) {
 			return nil, false, nil
 		}
 		return nil, false, commandError("could not list saved sessions", stderr, runErr)
@@ -155,6 +159,17 @@ func run(tmuxPath string, args ...string) (stdout, stderr []byte, err error) {
 		err = fmt.Errorf("%w after %s", ctx.Err(), commandTimeout)
 	}
 	return outBuf.Bytes(), errBuf.Bytes(), err
+}
+
+// serverAbsent reports whether tmux failed because no server is running. macOS reports a missing
+// socket as a connection error when the socket directory was never created; Linux and an existing
+// directory report "no server running".
+func serverAbsent(stderr string) bool {
+	if strings.Contains(stderr, noServerMarker) {
+		return true
+	}
+	return strings.Contains(stderr, noServerConnectionMarker) &&
+		strings.Contains(stderr, missingSocketMarker)
 }
 
 func commandError(operation string, stderr []byte, err error) error {
