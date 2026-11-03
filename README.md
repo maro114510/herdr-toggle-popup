@@ -139,14 +139,15 @@ detached and whatever its client count.
 
 ### Legacy overlay support
 
-The pre-native zoomed overlay is deprecated. Version 0.6.0 announces its removal and version 0.7.0
-removes it, including the `gc`, `on-pane-closed`, and `on-tab-focused` commands, the `popups.json`
-registry, the overlay-only Herdr client methods, the toggle migration guard, and the
-`popup_size.<entrypoint>` resize steps. The [removal record](./docs/design/legacy-removal.md) lists
-each affected interface, what v0.7.0 removes, and what it leaves on disk.
+The pre-native zoomed overlay was deprecated in version 0.6.0 and removed in version 0.7.0,
+including the `gc`, `on-pane-closed`, and `on-tab-focused` commands, the `popups.json` registry, the
+overlay-only Herdr client methods, the toggle migration guard, and the `popup_size.<entrypoint>`
+resize steps. The [removal record](./docs/design/legacy-removal.md) lists each affected interface,
+what version 0.7.0 removed, and what it left on disk.
 
 Removal never deletes an existing file or a saved shell. A `popups.json` left by an earlier release
-and every tmux session on either server stay where they are.
+and every tmux session on either server stay where they are. A `popup_size.<entrypoint>` key left in
+`config.toml` is ignored like any other unknown key.
 
 ### Recovering a legacy overlay
 
@@ -154,8 +155,8 @@ An overlay from a release before 0.4.1 is an ordinary Herdr plugin pane opened w
 `--placement overlay`, not a tmux session. Close it in Herdr as you would any plugin pane. The tmux
 shell it showed keeps running on the server that holds it, and the steps below recover it.
 
-Version 0.6.0 also closes a visible overlay when the toggle action next runs. Version 0.7.0 removes
-that migration guard, so close a leftover overlay by hand after upgrading from 0.6.0.
+Version 0.6.0 closed a visible overlay when the toggle action next ran. Version 0.7.0 removed that
+migration guard, so close a leftover overlay by hand after upgrading from 0.6.0.
 
 ### Recovering legacy tmux sessions
 
@@ -208,8 +209,6 @@ height = 20
 ```
 
 `width` and `height` each accept either a percentage of the terminal area (`"80%"`, from 1% to 100%) or a number of terminal cells (`20`), and each defaults to `100%`. They set the popup's outer size, including its border, exactly as Herdr's own popup dimensions do, and Herdr clamps values below its minimum. An invalid value is ignored with a warning on stderr and falls back to `100%`.
-
-These keys are independent of the legacy `popup_size.<entrypoint>` resize steps, which are not used for native popup dimensions.
 
 ## Invalid configuration
 
