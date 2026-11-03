@@ -94,6 +94,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
 | [docs/design/tmux-compatibility.md](./docs/design/tmux-compatibility.md) | Minimum tmux version, required capabilities, and compatibility CI targets |
 | [docs/smoke-test-clipboard.md](./docs/smoke-test-clipboard.md) | Manual macOS check that a popup drag reaches the host clipboard |
+| [docs/legacy-overlay-removal.md](./docs/legacy-overlay-removal.md) | Legacy overlay removal schedule, affected interfaces, and manual recovery |
 
 Add or update tests in the relevant internal package.
 
