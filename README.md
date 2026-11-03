@@ -131,6 +131,12 @@ another namespace or scope keeps its own. An incomplete context deletes nothing,
 does not exist is reported without touching another session. Deleting a session ends the shell for
 every client attached to it, so an attached session is refused unless `--force` is given.
 
+`toggle-popup cleanup [--force] <session>...` removes only the sessions you name. A name has to be
+a session `toggle-popup sessions` lists, and every named target has to carry its recorded namespace,
+scope, and entrypoint; otherwise nothing is removed. A target with an attached client is refused
+unless `--force` is given. Cleanup never removes a session on its own, however long it has been
+detached and whatever its client count.
+
 ### Legacy overlay support
 
 The pre-native zoomed overlay is deprecated. Version 0.6.0 announces its removal and version 0.7.0
