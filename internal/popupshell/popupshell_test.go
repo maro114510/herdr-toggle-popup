@@ -142,6 +142,7 @@ func wantTmuxWrapperArgv(session string, shell string, closeKey string) []string
 	return []string{
 		shellBin, "-c", tmuxAttachScript,
 		"popup-shell", session, focusedCwd, shell, testTmuxBin, closeKey,
+		namespaceForSocketPath(testSocketPath), scopeWorkspace, defaultEntrypoint,
 	}
 }
 
@@ -242,7 +243,8 @@ func runAttachScript(t *testing.T, env []string, tmuxPath, session, closeKey str
 	t.Helper()
 
 	//nolint:gosec // The test drives the production attach script with fixed arguments.
-	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", session, t.TempDir(), "/bin/sh", tmuxPath, closeKey)
+	cmd := exec.Command("sh", "-c", tmuxAttachScript, "popup-shell", session, t.TempDir(), "/bin/sh", tmuxPath, closeKey,
+		namespaceForSocketPath(testSocketPath), scopeWorkspace, defaultEntrypoint)
 	cmd.Env = env
 	_ = cmd.Run()
 }
@@ -898,6 +900,75 @@ func TestTmuxAttachScriptUpdatesWindowSizeWhenAClientResizes(t *testing.T) {
 	wantPopupWindowSize(t, env, tmuxPath, tinyClientCols, tinyClientRows)
 }
 
+// TestTmuxAttachScriptRecordsSessionOwnershipMetadata covers a new session: the sessions command
+// needs the namespace, scope, and entrypoint to explain what the hashed session name belongs to.
+func TestTmuxAttachScriptRecordsSessionOwnershipMetadata(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+	session := sessionName(namespacedKey("workspace:ws1:shell"))
+
+	runAttachScript(t, env, tmuxPath, session, testCloseKey)
+
+	want := map[string]string{
+		NamespaceOption:  namespaceForSocketPath(testSocketPath),
+		ScopeOption:      scopeWorkspace,
+		EntrypointOption: defaultEntrypoint,
+	}
+	for option, wantValue := range want {
+		if got := sessionOption(t, env, tmuxPath, session, option); got != wantValue {
+			t.Errorf("%s = %q, want %q", option, got, wantValue)
+		}
+	}
+}
+
+// TestTmuxAttachScriptRefreshesSessionOwnershipMetadataOnEveryConnection covers a session that
+// predates the metadata or was recorded under another context: a connection must not inherit
+// whatever the session held before.
+func TestTmuxAttachScriptRefreshesSessionOwnershipMetadataOnEveryConnection(t *testing.T) {
+	t.Parallel()
+
+	tmuxPath := realTmux(t)
+	env := isolatedTmuxEnv(t)
+	isolatedServers(t, env, tmuxPath)
+	session := sessionName(namespacedKey("workspace:ws1:shell"))
+
+	dedicatedTmux(t, env, tmuxPath, "new-session", "-d", "-s", session, "-c", t.TempDir(), "/bin/sh")
+	runAttachScript(t, env, tmuxPath, session, testCloseKey)
+	if got := sessionOption(t, env, tmuxPath, session, NamespaceOption); got != namespaceForSocketPath(testSocketPath) {
+		t.Errorf("%s after the first connection = %q, want it recorded, not guessed", NamespaceOption, got)
+	}
+
+	for _, option := range []string{NamespaceOption, ScopeOption, EntrypointOption} {
+		dedicatedTmux(t, env, tmuxPath, "set-option", "-t", session, option, "stale")
+	}
+	runAttachScript(t, env, tmuxPath, session, testCloseKey)
+
+	want := map[string]string{
+		NamespaceOption:  namespaceForSocketPath(testSocketPath),
+		ScopeOption:      scopeWorkspace,
+		EntrypointOption: defaultEntrypoint,
+	}
+	for option, wantValue := range want {
+		if got := sessionOption(t, env, tmuxPath, session, option); got != wantValue {
+			t.Errorf("%s after the second connection = %q, want %q", option, got, wantValue)
+		}
+	}
+}
+
+func sessionOption(t *testing.T, env []string, tmuxPath, session, option string) string {
+	t.Helper()
+
+	out := strings.TrimSpace(dedicatedTmux(t, env, tmuxPath, "show-options", "-t", session, option))
+	value, ok := strings.CutPrefix(out, option+" ")
+	if !ok {
+		t.Fatalf("show-options %s = %q, want %q followed by a value", option, out, option)
+	}
+	return value
+}
+
 //nolint:paralleltest // uses setupEnv, which mutates process env via t.Setenv.
 func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	setupEnv(t)
@@ -1211,6 +1282,57 @@ func TestTmuxSessionKeySeparatesNamespaces(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDirectoryScopeComparesExactCwdString pins the directory-scope identity comparison: the
+// focused pane's cwd is used as-is, without cleaning, symlink resolution, or case folding, and the
+// same string stays one identity across workspaces in one namespace.
+func TestDirectoryScopeComparesExactCwdString(t *testing.T) {
+	t.Setenv(socketPathEnvVar, testSocketPath)
+	t.Setenv(workspaceIDEnvVar, workspaceID)
+
+	keyFor := func(t *testing.T, cwd string) string {
+		t.Helper()
+
+		t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"`+cwd+`"}`)
+		key, _, err := tmuxSessionKey(scopeDirectory, defaultEntrypoint)
+		if err != nil {
+			t.Fatalf("tmuxSessionKey(%q) err = %v, want nil", cwd, err)
+		}
+		return key
+	}
+
+	t.Run("same cwd string in two workspaces shares one identity", func(t *testing.T) {
+		t.Setenv(contextEnvVar, `{"workspace_id":"ws1","focused_pane_cwd":"/focused/cwd"}`)
+		keyInWorkspaceOne, _, err := tmuxSessionKey(scopeDirectory, defaultEntrypoint)
+		if err != nil {
+			t.Fatalf("workspace one: err = %v, want nil", err)
+		}
+
+		t.Setenv(contextEnvVar, `{"workspace_id":"ws2","focused_pane_cwd":"/focused/cwd"}`)
+		keyInWorkspaceTwo, _, err := tmuxSessionKey(scopeDirectory, defaultEntrypoint)
+		if err != nil {
+			t.Fatalf("workspace two: err = %v, want nil", err)
+		}
+
+		if keyInWorkspaceOne != keyInWorkspaceTwo {
+			t.Errorf("keys = %q and %q, want the same cwd string to share one identity across workspaces",
+				keyInWorkspaceOne, keyInWorkspaceTwo)
+		}
+	})
+
+	//nolint:paralleltest // uses t.Setenv through keyFor.
+	t.Run("different spellings of one directory keep distinct identities", func(t *testing.T) {
+		spellings := []string{"/focused/cwd", "/focused/cwd/", "/focused/link-to-cwd", "/Focused/cwd"}
+		seen := make(map[string]string, len(spellings))
+		for _, spelling := range spellings {
+			key := keyFor(t, spelling)
+			if other, exists := seen[key]; exists {
+				t.Errorf("cwd %q and %q share identity %q, want distinct identities", other, spelling, key)
+			}
+			seen[key] = spelling
+		}
+	})
 }
 
 func TestRunExecsTmuxSessionForTabScope(t *testing.T) {

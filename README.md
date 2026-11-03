@@ -112,9 +112,53 @@ A saved shell is keyed to its Herdr namespace, its scope, and its entrypoint, an
 
 Herdr permits one native popup at a time. Close any existing native popup before opening this shell.
 
-To discard a saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
+To inspect a saved popup shell session, use `toggle-popup sessions`. A legacy session that the management commands refuse still needs `tmux -L herdr-toggle-popup kill-session -t <session>`.
 
-### Recovering sessions from earlier versions
+### Managing saved sessions
+
+`toggle-popup sessions` lists the saved shells on the dedicated server without attaching to one,
+starting the server, or changing anything. Each line shows the session name and either its recorded
+namespace, scope, and entrypoint or `ownership=unknown`, plus the number of attached clients.
+
+The plugin records that context on every connection. A session created before the plugin recorded it
+shows `ownership=unknown` until the next popup reuses the session, which fills the values in. Only
+sessions created by the plugin are listed; a session another tool created on the dedicated server is
+not a management target.
+
+`toggle-popup reset-current` discards the saved shell that the current namespace, scope, and
+entrypoint resolve to, and the next popup opens a new shell. It removes only that session, so
+another namespace or scope keeps its own. An incomplete context deletes nothing, and a target that
+does not exist is reported without touching another session. Deleting a session ends the shell for
+every client attached to it, so an attached session is refused unless `--force` is given.
+
+`toggle-popup cleanup [--force] <session>...` removes only the sessions you name. A name has to be
+a session `toggle-popup sessions` lists, and every named target has to carry its recorded namespace,
+scope, and entrypoint; otherwise nothing is removed. A target with an attached client is refused
+unless `--force` is given. Cleanup never removes a session on its own, however long it has been
+detached and whatever its client count.
+
+### Legacy overlay support
+
+The pre-native zoomed overlay was deprecated in version 0.6.0 and removed in version 0.7.0,
+including the `gc`, `on-pane-closed`, and `on-tab-focused` commands, the `popups.json` registry, the
+overlay-only Herdr client methods, the toggle migration guard, and the `popup_size.<entrypoint>`
+resize steps. The [removal record](./docs/design/legacy-removal.md) lists each affected interface,
+what version 0.7.0 removed, and what it left on disk.
+
+Removal never deletes an existing file or a saved shell. A `popups.json` left by an earlier release
+and every tmux session on either server stay where they are. A `popup_size.<entrypoint>` key left in
+`config.toml` is ignored like any other unknown key.
+
+### Recovering a legacy overlay
+
+An overlay from a release before 0.4.1 is an ordinary Herdr plugin pane opened with
+`--placement overlay`, not a tmux session. Close it in Herdr as you would any plugin pane. The tmux
+shell it showed keeps running on the server that holds it, and the steps below recover it.
+
+Version 0.6.0 closed a visible overlay when the toggle action next ran. Version 0.7.0 removed that
+migration guard, so close a leftover overlay by hand after upgrading from 0.6.0.
+
+### Recovering legacy tmux sessions
 
 Sessions created before the namespace was part of the identity do not carry a namespace, so the plugin never attaches to or deletes them automatically. Recover one by hand:
 
@@ -132,6 +176,13 @@ scope = "directory"
 ```
 
 Use `scope = "tab"` to scope it to a particular tab within a workspace. The popup process reads the invocation context so these scopes also work with native popup panes, which do not receive `HERDR_PANE_ID`.
+
+The directory scope compares the focused pane's cwd as an exact string. It does not clean the path,
+resolve a symlink, or normalize case, so `/work/app`, `/work/app/`, `/work/link-to-app`, and
+`/Work/app` are four different identities even when they reach the same directory. The exact string
+is combined with the namespace and the entrypoint: the same cwd string stays one saved shell across
+workspaces inside one Herdr namespace, and the same string in another namespace opens a different
+saved shell.
 
 ## Close key
 
@@ -158,8 +209,6 @@ height = 20
 ```
 
 `width` and `height` each accept either a percentage of the terminal area (`"80%"`, from 1% to 100%) or a number of terminal cells (`20`), and each defaults to `100%`. They set the popup's outer size, including its border, exactly as Herdr's own popup dimensions do, and Herdr clamps values below its minimum. An invalid value is ignored with a warning on stderr and falls back to `100%`.
-
-These keys are independent of the legacy `popup_size.<entrypoint>` resize steps, which are not used for native popup dimensions.
 
 ## Invalid configuration
 
