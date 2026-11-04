@@ -157,6 +157,10 @@ scope = "directory"
 
 Use `scope = "tab"` to scope it to a particular tab within a workspace. The popup process reads the invocation context so these scopes also work with native popup panes, which do not receive `HERDR_PANE_ID`.
 
+### Directory identity is the exact cwd string
+
+Inside one Herdr namespace, `scope = "directory"` shares one saved shell across every workspace and tab whose focused pane reports the same `focused_pane_cwd` string, and opens a separate shell for any other string. The plugin compares the string as reported: it does not clean the path, resolve symlinks, or fold case, so `/work/repo`, `/work/repo/`, `/work/REPO`, and a symlink alias of that directory are four identities. A namespace still separates Herdr instances, so the same string in two namespaces opens two shells.
+
 ## Close key
 
 `close_key` in `$HERDR_PLUGIN_CONFIG_DIR/config.toml` sets the key that closes the popup.
