@@ -13,7 +13,7 @@ func TestRunListsIdentifiedPluginSessionsAndUnknownLegacySessions(t *testing.T) 
 	writeFakeTmux(t, binDir, `
 case "$*" in
   *"list-sessions"*)
-    printf '%s\n' 'herdr-toggle-popup-a\tns-a\tworkspace\tshell' 'other-session\t\t\t' 'herdr-toggle-popup-b\t\t\t'
+    printf '%b\n' 'herdr-toggle-popup-a\tns-a\tworkspace\tshell' 'other-session\t\t\t' 'herdr-toggle-popup-b\t\t\t'
     ;;
   *"list-clients"*)
     printf '%s\n' 'herdr-toggle-popup-a' 'herdr-toggle-popup-a' 'herdr-toggle-popup-b'
@@ -42,8 +42,12 @@ func TestRunWithNoServerPrintsEmptyListingWithoutCreatingOne(t *testing.T) {
 	binDir := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "created")
 	writeFakeTmux(t, binDir, `
-if [[ "$*" == *"new-session"* || "$*" == *"start-server"* ]]; then touch "$MARKER"; fi
-if [[ "$*" == *"list-sessions"* ]]; then exit 1; fi
+case "$*" in
+  *new-session*|*start-server*) touch "$MARKER" ;;
+esac
+case "$*" in
+  *list-sessions*) exit 1 ;;
+esac
 `)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("MARKER", marker)

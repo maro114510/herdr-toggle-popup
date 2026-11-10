@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"github.com/maro114510/herdr-toggle-popup/internal/config"
@@ -20,6 +21,12 @@ import (
 const (
 	// SocketName is the dedicated tmux server socket that holds saved popup shells.
 	SocketName = "herdr-toggle-popup"
+	// SessionPrefix identifies sessions owned by this plugin.
+	SessionPrefix = "herdr-toggle-popup-"
+	// Session options preserve the ownership context that cannot be recovered from the opaque name.
+	NamespaceOption  = "@herdr-toggle-popup-namespace"
+	ScopeOption      = "@herdr-toggle-popup-scope"
+	EntrypointOption = "@herdr-toggle-popup-entrypoint"
 	// CloseKeyOption is the session option that records the key closing that session.
 	CloseKeyOption = "@herdr-close-key"
 	// DefaultEntrypoint is the manifest's popup entrypoint.
@@ -34,7 +41,7 @@ const (
 	scopeTab           = "tab"
 	workspaceIDEnvVar  = "HERDR_WORKSPACE_ID"
 	socketPathEnvVar   = "HERDR_SOCKET_PATH"
-	sessionPrefix      = "herdr-toggle-popup-"
+	sessionPrefix      = SessionPrefix
 	namespaceHashBytes = 16
 	sessionHashBytes   = 16
 )
@@ -83,6 +90,9 @@ else
   "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" mouse on
 fi
 "$4" -L herdr-toggle-popup -f /dev/null set-option -w -t "$1" window-size smallest
+"$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-toggle-popup-namespace "${HERDR_TOGGLE_POPUP_NAMESPACE:-}"
+"$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-toggle-popup-scope "${HERDR_TOGGLE_POPUP_SCOPE:-}"
+"$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-toggle-popup-entrypoint "${HERDR_TOGGLE_POPUP_ENTRYPOINT:-}"
 key="$5"
 "$4" -L herdr-toggle-popup -f /dev/null set-option -t "$1" @herdr-close-key "$key"
 if ! "$4" -L herdr-toggle-popup -f /dev/null bind-key -n "$key" if-shell -F "#{==:#{@herdr-close-key},$key}" "detach-client" "send-keys $key"; then
@@ -153,11 +163,28 @@ func run(args []string, stderr io.Writer, lookPath lookPathFunc, execProcess exe
 	}
 
 	argv := []string{shellBin, "-c", tmuxAttachScript, "popup-shell", sessionName(sessionKey), cwd, shellPath, tmuxPath, cfg.CloseKey}
-	if err := execProcess(shPath, argv, os.Environ()); err != nil {
+	env := append(os.Environ(),
+		"HERDR_TOGGLE_POPUP_NAMESPACE="+namespaceForSessionKey(sessionKey),
+		"HERDR_TOGGLE_POPUP_SCOPE="+cfg.Scope,
+		"HERDR_TOGGLE_POPUP_ENTRYPOINT="+entrypoint,
+	)
+	if err := execProcess(shPath, argv, env); err != nil {
 		_, _ = fmt.Fprintf(stderr, "popup-shell: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func namespaceForSessionKey(key string) string {
+	const prefix = "namespace:"
+	if !strings.HasPrefix(key, prefix) {
+		return ""
+	}
+	value, _, ok := strings.Cut(strings.TrimPrefix(key, prefix), ":")
+	if !ok {
+		return ""
+	}
+	return value
 }
 
 func tmuxSessionKey(scopeMode, entrypoint string) (key, cwd string, err error) {
