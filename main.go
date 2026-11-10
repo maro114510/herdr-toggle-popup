@@ -27,7 +27,7 @@ const usage = `Usage: toggle-popup <command>
 Commands:
   toggle           Toggle the popup pane
   popup-shell      Run the shell inside the popup pane
-	  sessions         List saved toggle-popup sessions
+  sessions         List saved toggle-popup sessions
   doctor           Print safe diagnostics for support
   version          Print the toggle-popup version
 `

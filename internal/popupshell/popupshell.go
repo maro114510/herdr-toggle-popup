@@ -41,7 +41,6 @@ const (
 	scopeTab           = "tab"
 	workspaceIDEnvVar  = "HERDR_WORKSPACE_ID"
 	socketPathEnvVar   = "HERDR_SOCKET_PATH"
-	sessionPrefix      = SessionPrefix
 	namespaceHashBytes = 16
 	sessionHashBytes   = 16
 )
@@ -243,5 +242,5 @@ func namespaceForSocketPath(socketPath string) string {
 
 func sessionName(key string) string {
 	sum := sha256.Sum256([]byte(key))
-	return sessionPrefix + hex.EncodeToString(sum[:sessionHashBytes])
+	return SessionPrefix + hex.EncodeToString(sum[:sessionHashBytes])
 }
