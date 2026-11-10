@@ -10,12 +10,14 @@ import (
 
 	"github.com/maro114510/herdr-toggle-popup/internal/doctor"
 	"github.com/maro114510/herdr-toggle-popup/internal/popupshell"
+	"github.com/maro114510/herdr-toggle-popup/internal/sessions"
 	"github.com/maro114510/herdr-toggle-popup/internal/toggle"
 )
 
 const (
 	cmdToggle     = "toggle"
 	cmdPopupShell = "popup-shell"
+	cmdSessions   = "sessions"
 	cmdDoctor     = "doctor"
 	cmdVersion    = "version"
 )
@@ -25,6 +27,7 @@ const usage = `Usage: toggle-popup <command>
 Commands:
   toggle           Toggle the popup pane
   popup-shell      Run the shell inside the popup pane
+	  sessions         List saved toggle-popup sessions
   doctor           Print safe diagnostics for support
   version          Print the toggle-popup version
 `
@@ -61,6 +64,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(
 		newDispatchCmd(cmdToggle, "Toggle the popup pane", toggle.Run),
 		newDispatchCmd(cmdPopupShell, "Run the shell inside the popup pane", popupshell.Run),
+		newDispatchCmd(cmdSessions, "List saved toggle-popup sessions", sessions.Run),
 		newDoctorCmd(),
 		newVersionCmd(),
 	)
