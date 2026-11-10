@@ -30,7 +30,7 @@ func TestRun(t *testing.T) {
 		}{
 			"no args": {
 				args:      nil,
-				wantInMsg: []string{cmdToggle, cmdPopupShell},
+				wantInMsg: []string{cmdToggle, cmdPopupShell, cmdSessions},
 			},
 			"unknown command": {
 				args:      []string{"unknown-cmd"},
