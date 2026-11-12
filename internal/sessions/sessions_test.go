@@ -68,6 +68,7 @@ func writeFakeTmux(t *testing.T, dir, body string) {
 	t.Helper()
 	path := filepath.Join(dir, "tmux")
 	script := "#!/bin/sh\nset -eu\n" + body
+	//nolint:gosec // The fake tmux must be executable.
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

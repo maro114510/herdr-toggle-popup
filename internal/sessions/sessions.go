@@ -85,6 +85,7 @@ func assignClientCounts(sessions []session, raw string) {
 func tmuxOutput(path string, args ...string) (string, error) {
 	args = append([]string{"-L", popupshell.SocketName, "-f", "/dev/null"}, args...)
 	var stdout, stderr bytes.Buffer
+	//nolint:gosec // path is the tmux binary resolved by the caller and args are fixed.
 	cmd := exec.Command(path, args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
