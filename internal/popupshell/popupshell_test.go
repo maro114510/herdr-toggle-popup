@@ -919,7 +919,12 @@ func TestRunExecsTmuxSessionForWorkspaceScope(t *testing.T) {
 	if !slices.Equal(call.argv, wantArgv) {
 		t.Errorf("argv = %v, want %v", call.argv, wantArgv)
 	}
-	if !slices.Equal(call.envv, os.Environ()) {
+	wantEnv := append(os.Environ(),
+		"HERDR_TOGGLE_POPUP_NAMESPACE="+namespaceForSessionKey(namespacedKey("workspace:ws1:shell")),
+		"HERDR_TOGGLE_POPUP_SCOPE=workspace",
+		"HERDR_TOGGLE_POPUP_ENTRYPOINT=shell",
+	)
+	if !slices.Equal(call.envv, wantEnv) {
 		t.Error("envv was not the inherited environment")
 	}
 }
