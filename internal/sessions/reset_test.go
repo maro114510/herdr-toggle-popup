@@ -228,7 +228,9 @@ func attachDetachedServerClient(t *testing.T, session string) {
 	t.Helper()
 
 	cmd := exec.Command("tmux", "-L", popupshell.SocketName, "-f", "/dev/null", "attach-session", "-t", session) //nolint:gosec // the test controls the tmux binary and every argument
-	cmd.Env = os.Environ()
+	// tmux refuses to attach when TERM cannot clear the screen, and CI runs the tests with
+	// TERM=dumb, so the PTY gets a terminal the client can actually drive.
+	cmd.Env = append(envWithoutTerm(os.Environ()), "TERM=xterm-256color")
 	master, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80, X: 0, Y: 0})
 	if err != nil {
 		t.Fatalf("start PTY tmux client: %v", err)
@@ -269,4 +271,16 @@ func sessionClients(t *testing.T, session string) int {
 		return clients
 	}
 	return 0
+}
+
+// envWithoutTerm drops TERM from env so the caller can set the terminal the child sees.
+func envWithoutTerm(env []string) []string {
+	kept := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "TERM=") {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
 }
