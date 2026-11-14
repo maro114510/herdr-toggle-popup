@@ -5,8 +5,8 @@
 #
 # Publication freezes the assets of an immutable release, so this is the last step of the release
 # workflow: it refuses a release that is not a draft or lacks any required asset, publishes the
-# draft, and then reads the release back to confirm GitHub froze it. Run it with GH_TOKEN and
-# GH_REPO set, as the release workflow does.
+# draft, and then reads the release back to confirm GitHub froze it. Run it from a checkout with
+# GH_TOKEN set, as the release workflow does.
 set -eu
 
 usage() {
