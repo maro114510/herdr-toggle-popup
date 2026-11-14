@@ -24,18 +24,28 @@ import (
 const (
 	publishScriptName = "scripts/publish-release.sh"
 	publishTag        = "v1.2.3"
+	boolTrue          = "true"
+	boolFalse         = "false"
 )
 
-var publishRequiredAssets = []string{
-	"toggle-popup_darwin_amd64",
-	"toggle-popup_darwin_arm64",
-	"toggle-popup_linux_amd64",
-	"toggle-popup_linux_arm64",
-	"sbom_toggle-popup_darwin_amd64.cdx.json",
-	"sbom_toggle-popup_darwin_arm64.cdx.json",
-	"sbom_toggle-popup_linux_amd64.cdx.json",
-	"sbom_toggle-popup_linux_arm64.cdx.json",
-	"checksums.txt",
+func publishRequiredAssets() []string {
+	return []string{
+		"toggle-popup_darwin_amd64",
+		"toggle-popup_darwin_arm64",
+		"toggle-popup_linux_amd64",
+		"toggle-popup_linux_arm64",
+		"sbom_toggle-popup_darwin_amd64.cdx.json",
+		"sbom_toggle-popup_darwin_arm64.cdx.json",
+		"sbom_toggle-popup_linux_amd64.cdx.json",
+		"sbom_toggle-popup_linux_arm64.cdx.json",
+		"checksums.txt",
+	}
+}
+
+// draftWithEveryAsset is a draft release that holds every required asset and will report itself
+// immutable once published, so a test changes only the precondition it is about.
+func draftWithEveryAsset() fakeRelease {
+	return fakeRelease{draft: boolTrue, immutable: boolTrue, assets: publishRequiredAssets(), viewFails: false, editFails: false}
 }
 
 //nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
@@ -65,7 +75,7 @@ func TestPublishScriptWithoutGHFails(t *testing.T) {
 
 //nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestPublishScriptWithUnreadableReleaseFailsAndPublishesNothing(t *testing.T) {
-	fake := installFakeGH(t, fakeRelease{draft: "true", assets: publishRequiredAssets, immutable: "true", viewFails: true})
+	fake := installFakeGH(t, withViewFailing(draftWithEveryAsset()))
 
 	stderr, err := runPublishScript(t, fake.pathDir, publishTag)
 
@@ -80,7 +90,7 @@ func TestPublishScriptWithUnreadableReleaseFailsAndPublishesNothing(t *testing.T
 
 //nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestPublishScriptWithAlreadyPublishedReleaseFailsAndPublishesNothing(t *testing.T) {
-	fake := installFakeGH(t, fakeRelease{draft: "false", assets: publishRequiredAssets, immutable: "true"})
+	fake := installFakeGH(t, withDraft(draftWithEveryAsset(), boolFalse))
 
 	stderr, err := runPublishScript(t, fake.pathDir, publishTag)
 
@@ -95,15 +105,15 @@ func TestPublishScriptWithAlreadyPublishedReleaseFailsAndPublishesNothing(t *tes
 
 //nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestPublishScriptWithMissingAssetFailsAndPublishesNothing(t *testing.T) {
-	for _, missing := range publishRequiredAssets {
+	for _, missing := range publishRequiredAssets() {
 		t.Run(missing, func(t *testing.T) {
-			present := make([]string, 0, len(publishRequiredAssets))
-			for _, asset := range publishRequiredAssets {
+			present := make([]string, 0, len(publishRequiredAssets()))
+			for _, asset := range publishRequiredAssets() {
 				if asset != missing {
 					present = append(present, asset)
 				}
 			}
-			fake := installFakeGH(t, fakeRelease{draft: "true", assets: present, immutable: "true"})
+			fake := installFakeGH(t, withAssets(draftWithEveryAsset(), present))
 
 			stderr, err := runPublishScript(t, fake.pathDir, publishTag)
 
@@ -120,8 +130,8 @@ func TestPublishScriptWithMissingAssetFailsAndPublishesNothing(t *testing.T) {
 
 //nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestPublishScriptPublishesDraftHoldingEveryRequiredAsset(t *testing.T) {
-	extra := append([]string{"notes.txt"}, publishRequiredAssets...)
-	fake := installFakeGH(t, fakeRelease{draft: "true", assets: extra, immutable: "true"})
+	extra := append([]string{"notes.txt"}, publishRequiredAssets()...)
+	fake := installFakeGH(t, withAssets(draftWithEveryAsset(), extra))
 
 	_, err := runPublishScript(t, fake.pathDir, publishTag)
 	if err != nil {
@@ -141,7 +151,7 @@ func TestPublishScriptPublishesDraftHoldingEveryRequiredAsset(t *testing.T) {
 
 //nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestPublishScriptFailsWhenPublicationFails(t *testing.T) {
-	fake := installFakeGH(t, fakeRelease{draft: "true", assets: publishRequiredAssets, immutable: "true", editFails: true})
+	fake := installFakeGH(t, withEditFailing(draftWithEveryAsset()))
 
 	stderr, err := runPublishScript(t, fake.pathDir, publishTag)
 
@@ -155,7 +165,7 @@ func TestPublishScriptFailsWhenPublicationFails(t *testing.T) {
 
 //nolint:paralleltest // Each test spawns shell processes; running them in parallel starves internal/doctor's 3s command timeout.
 func TestPublishScriptFailsWhenPublishedReleaseIsNotImmutable(t *testing.T) {
-	fake := installFakeGH(t, fakeRelease{draft: "true", assets: publishRequiredAssets, immutable: "false"})
+	fake := installFakeGH(t, withImmutable(draftWithEveryAsset(), boolFalse))
 
 	stderr, err := runPublishScript(t, fake.pathDir, publishTag)
 
@@ -173,6 +183,36 @@ type fakeRelease struct {
 	assets    []string
 	viewFails bool
 	editFails bool
+}
+
+func withViewFailing(r fakeRelease) fakeRelease {
+	r.viewFails = true
+
+	return r
+}
+
+func withEditFailing(r fakeRelease) fakeRelease {
+	r.editFails = true
+
+	return r
+}
+
+func withDraft(r fakeRelease, draft string) fakeRelease {
+	r.draft = draft
+
+	return r
+}
+
+func withImmutable(r fakeRelease, immutable string) fakeRelease {
+	r.immutable = immutable
+
+	return r
+}
+
+func withAssets(r fakeRelease, assets []string) fakeRelease {
+	r.assets = assets
+
+	return r
 }
 
 type fakeGH struct {
