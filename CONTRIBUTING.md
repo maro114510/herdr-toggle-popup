@@ -89,6 +89,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [internal/](./internal) | Plugin behavior grouped by concern, each package with tests |
 | [scripts/build.sh](./scripts/build.sh) | The Herdr build step |
 | [scripts/generate-sbom.sh](./scripts/generate-sbom.sh) | SBOM generation and validation for the release binaries |
+| [scripts/publish-release.sh](./scripts/publish-release.sh) | Publishes the draft release once every asset is attached and confirms it is immutable |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |

@@ -152,6 +152,8 @@ A release may be published only when all of these hold.
 | Required check missing, security fix must land | Use the exception path |
 | CI unavailable | Wait, unless a release cannot. Turn rule enforcement off, restore it, and record the incident |
 | Workflow fails after the tag is pushed | Fix the workflow and re-run it against the tag. Never move or delete the tag |
+| Workflow fails before publication | The release is still a draft and nobody can download it. Re-run the workflow: it deletes the draft, keeps the tag, and attaches every asset again |
+| Publication reports the release is not immutable | The assets are already frozen as published. Turn on immutable releases in the repository settings before the next release, then follow the re-release steps for a published defect |
 | Key or account compromised | Revoke and rotate, publish an advisory, and treat releases in the exposure window as suspect |
 
 ## Ruleset definitions
