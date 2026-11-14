@@ -139,10 +139,8 @@ func TestPublishScriptPublishesDraftHoldingEveryRequiredAsset(t *testing.T) {
 	}
 
 	log := readLog(t, fake.log)
-	for _, want := range []string{"release\nedit\n" + publishTag + "\n--draft=false\n"} {
-		if !strings.Contains(log, want) {
-			t.Errorf("gh log = %q, want it to contain %q", log, want)
-		}
+	if want := "release\nedit\n" + publishTag + "\n--draft=false\n"; !strings.Contains(log, want) {
+		t.Errorf("gh log = %q, want it to contain %q", log, want)
 	}
 	if got := strings.Count(log, "edit\n"); got != 1 {
 		t.Errorf("gh release edit invocations = %d, want 1", got)
