@@ -71,6 +71,38 @@ gh api "repos/maro114510/herdr-toggle-popup/git/tags/${tag_sha}" --jq '.verifica
 
 Releases published before tag signing was enforced carry no signature, so verification fails.
 
+## Inspect the bill of materials
+
+Each release attaches one CycloneDX 1.6 JSON SBOM per distributed binary. [`syft`](https://github.com/anchore/syft), pinned by version and SHA-256 in the [release workflow](./.github/workflows/release.yml), reads the Go build information embedded in the binary, so the listed modules are the ones that binary contains, not what [`go.mod`](./go.mod) requests.
+
+| Target | Binary | SBOM |
+| --- | --- | --- |
+| macOS amd64 | `toggle-popup_darwin_amd64` | `sbom_toggle-popup_darwin_amd64.cdx.json` |
+| macOS arm64 | `toggle-popup_darwin_arm64` | `sbom_toggle-popup_darwin_arm64.cdx.json` |
+| Linux amd64 | `toggle-popup_linux_amd64` | `sbom_toggle-popup_linux_amd64.cdx.json` |
+| Linux arm64 | `toggle-popup_linux_arm64` | `sbom_toggle-popup_linux_arm64.cdx.json` |
+
+List the modules and versions:
+
+```bash
+jq -r '.components[] | select(.type == "library") | "\(.name) \(.version)"' sbom_toggle-popup_darwin_arm64.cdx.json
+```
+
+Compare them with the binary's own record:
+
+```bash
+go version -m ./toggle-popup_darwin_arm64
+```
+
+Validate the document with the [CycloneDX CLI](https://github.com/CycloneDX/cyclonedx-cli), which the release job also runs:
+
+```bash
+cyclonedx validate --input-file sbom_toggle-popup_darwin_arm64.cdx.json \
+  --input-format json --input-version 1.6 --fail-on-errors
+```
+
+The release job fails when an SBOM is missing, cannot be generated, or does not validate, so a published release carries all four.
+
 ## Binding a key
 
 Copy the block from [`keybindings.toml`](./keybindings.toml) into `~/.config/herdr/config.toml`:
@@ -117,6 +149,30 @@ Sessions created before the namespace was part of the identity do not carry a na
 
 Remove an unwanted legacy session on the server that holds it: `tmux -L herdr-toggle-popup kill-session -t <session>` on the dedicated server, or `tmux kill-session -t <session>` on the default server.
 
+Neither v0.6.0 nor v0.7.0 removes a legacy session automatically. See [recover a legacy tmux session](./docs/legacy-overlay-removal.md#recover-a-legacy-tmux-session) for the full procedure and how to move its work to a native popup.
+
+## Legacy overlay support removal
+
+Legacy overlay support is deprecated in v0.6.0 and removed in v0.7.0. Native popups, saved tmux shells, and the `scope`, `close_key`, `width`, and `height` settings are unaffected.
+
+| Release | Legacy overlay support |
+| --- | --- |
+| v0.6.0 | Announced and deprecated. The legacy commands still run, and `popup_size` and `popups.json` are still read. |
+| v0.7.0 | Support ends. The legacy commands and `popup_size` are removed, and the `popups.json` registry is no longer read or written. |
+
+The affected CLI, configuration, and state interfaces change as follows:
+
+| Interface | v0.6.0 | v0.7.0 | Replacement |
+| --- | --- | --- | --- |
+| `toggle-popup gc` | Available; prunes stale `popups.json` entries | Removed; exits as an unknown command | None; native popups do not use a registry |
+| `toggle-popup on-pane-closed` | Available as the legacy `pane.closed` event handler | Removed | None; native popups emit no pane lifecycle event |
+| `toggle-popup on-tab-focused` | Available as the legacy `tab.focused` event handler | Removed | None; the close key closes the popup |
+| `toggle-popup doctor` | Prints the `state:` line and the `popup_size entries` count | Prints neither; still prints the effective `popup size:` | None |
+| `popup_size.<entrypoint>` or `[popup_size]` | Read but not used for native popup dimensions | Ignored | `width` and `height` |
+| `HERDR_PLUGIN_STATE_DIR` / `popups.json` | Read by `toggle`, `doctor`, `gc`, and the event handlers | Never read or written; the file is left in place | None |
+
+The plugin never deletes a legacy tmux session automatically. In v0.6.0 the toggle action closes a visible legacy overlay pane but leaves its tmux session and the `popups.json` file in place; v0.7.0 removes that guard. For the full schedule, migration steps, and separate recovery procedures, see the [legacy overlay removal release guidance](./docs/legacy-overlay-removal.md): [recover a legacy overlay](./docs/legacy-overlay-removal.md#recover-a-legacy-overlay) and [recover a legacy tmux session](./docs/legacy-overlay-removal.md#recover-a-legacy-tmux-session).
+
 ## Directory- and tab-scoped sessions
 
 By default, the saved tmux shell session is scoped to the workspace. To scope it to the focused directory across workspaces, create `$HERDR_PLUGIN_CONFIG_DIR/config.toml` with:
@@ -126,6 +182,10 @@ scope = "directory"
 ```
 
 Use `scope = "tab"` to scope it to a particular tab within a workspace. The popup process reads the invocation context so these scopes also work with native popup panes, which do not receive `HERDR_PANE_ID`.
+
+### Directory identity is the exact cwd string
+
+Inside one Herdr namespace, `scope = "directory"` shares one saved shell across every workspace and tab whose focused pane reports the same `focused_pane_cwd` string, and opens a separate shell for any other string. The plugin compares the string as reported: it does not clean the path, resolve symlinks, or fold case, so `/work/repo`, `/work/repo/`, `/work/REPO`, and a symlink alias of that directory are four identities. A namespace still separates Herdr instances, so the same string in two namespaces opens two shells.
 
 ## Close key
 
@@ -153,7 +213,7 @@ height = 20
 
 `width` and `height` each accept either a percentage of the terminal area (`"80%"`, from 1% to 100%) or a number of terminal cells (`20`), and each defaults to `100%`. They set the popup's outer size, including its border, exactly as Herdr's own popup dimensions do, and Herdr clamps values below its minimum. An invalid value is ignored with a warning on stderr and falls back to `100%`.
 
-These keys are independent of the legacy `popup_size.<entrypoint>` resize steps, which are not used for native popup dimensions.
+These keys are independent of the legacy `popup_size.<entrypoint>` resize steps. Those steps were never used for native popup dimensions, are deprecated in v0.6.0, and are removed in v0.7.0; use `width` and `height` instead. See the [legacy overlay removal release guidance](./docs/legacy-overlay-removal.md).
 
 ## Invalid configuration
 
