@@ -1,0 +1,27 @@
+# Auto-merges Dependabot patch and minor updates once every check has passed.
+#
+# The behavior lives in the reusable workflow this job calls, so every repository
+# shares one implementation. This file holds only the trigger, the permissions,
+# and the merge method.
+name: dependabot-auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    uses: maro114510/dotfiles/.github/workflows/reusable-dependabot-auto-merge.yml@main
+    with:
+      merge-method: squash
