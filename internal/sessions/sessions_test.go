@@ -93,6 +93,7 @@ func TestRunReadsOwnershipOptionsFromRealTmux(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
+		//nolint:gosec // The test controls the tmux binary and every argument.
 		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", "/dev/null", "kill-server").Run()
 	})
 
