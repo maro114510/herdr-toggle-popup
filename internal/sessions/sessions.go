@@ -15,7 +15,7 @@ import (
 
 const (
 	unknown = "unknown"
-	format  = "#{session_name}\t#{@" + popupshell.NamespaceOption + "}\t#{@" + popupshell.ScopeOption + "}\t#{@" + popupshell.EntrypointOption + "}"
+	format  = "#{session_name}\t#{" + popupshell.NamespaceOption + "}\t#{" + popupshell.ScopeOption + "}\t#{" + popupshell.EntrypointOption + "}"
 )
 
 type session struct {
