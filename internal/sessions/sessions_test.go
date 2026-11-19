@@ -86,7 +86,7 @@ func TestRunReadsOwnershipOptionsFromRealTmux(t *testing.T) {
 
 	tmux := func(args ...string) {
 		t.Helper()
-		full := append([]string{"-L", popupshell.SocketName, "-f", "/dev/null"}, args...)
+		full := append([]string{"-L", popupshell.SocketName, "-f", noTmuxConfig}, args...)
 		//nolint:gosec // The test controls the tmux binary and every argument.
 		if out, err := exec.Command(tmuxPath, full...).CombinedOutput(); err != nil {
 			t.Fatalf("tmux %v: %v\n%s", full, err, out)
@@ -94,7 +94,7 @@ func TestRunReadsOwnershipOptionsFromRealTmux(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		//nolint:gosec // The test controls the tmux binary and every argument.
-		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", "/dev/null", "kill-server").Run()
+		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", noTmuxConfig, "kill-server").Run()
 	})
 
 	const identified = "herdr-toggle-popup-aaaa"
@@ -151,6 +151,7 @@ func TestRunWithNoRealServerPrintsEmptyListingWithoutStartingOne(t *testing.T) {
 
 const (
 	deleteCmd       = "delete"
+	noTmuxConfig    = "/dev/null"
 	detachedSession = "herdr-toggle-popup-detached"
 	foreignSession  = "other-session"
 	notPlugin       = "not a plugin session"
@@ -359,7 +360,7 @@ func TestDeleteRemovesOnlySelectedSessionOnRealTmux(t *testing.T) {
 
 	tmux := func(args ...string) string {
 		t.Helper()
-		full := append([]string{"-L", popupshell.SocketName, "-f", "/dev/null"}, args...)
+		full := append([]string{"-L", popupshell.SocketName, "-f", noTmuxConfig}, args...)
 		//nolint:gosec // The test controls the tmux binary and every argument.
 		out, err := exec.Command(tmuxPath, full...).CombinedOutput()
 		if err != nil {
@@ -369,7 +370,7 @@ func TestDeleteRemovesOnlySelectedSessionOnRealTmux(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		//nolint:gosec // The test controls the tmux binary and every argument.
-		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", "/dev/null", "kill-server").Run()
+		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", noTmuxConfig, "kill-server").Run()
 	})
 
 	// The shorter name is a prefix of the longer one: an unanchored -t would match both.
