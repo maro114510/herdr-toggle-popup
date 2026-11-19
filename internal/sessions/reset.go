@@ -18,12 +18,8 @@ const (
 // ResetCurrent discards the saved shell that belongs to the current context. It refuses a
 // session that has attached clients unless --force is given, and never deletes any other session.
 func ResetCurrent(args []string, stdout, stderr io.Writer) int {
-	force := false
-	switch {
-	case len(args) == 0:
-	case len(args) == 1 && args[0] == forceFlag:
-		force = true
-	default:
+	force, ok := parseResetArgs(args)
+	if !ok {
 		_, _ = fmt.Fprintln(stderr, resetUsage)
 		return 1
 	}
@@ -39,36 +35,55 @@ func ResetCurrent(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// An absent server reads as a failed listing and means there is nothing to delete; never run a
-	// command that starts the server.
-	listed, _ := tmuxOutput(tmuxPath, "list-sessions", "-F", format)
-	found := parseSessions(listed)
-	index := slices.IndexFunc(found, func(item session) bool { return item.name == identity.Session })
-	if index < 0 {
+	current, found := findSaved(tmuxPath, identity.Session)
+	if !found {
 		_, _ = fmt.Fprintf(stdout, "reset-current: nothing to delete, no saved shell exists for the current context (%s)\n", identity.Session)
 		return 0
 	}
-	current := found[index : index+1]
-	// A failed client listing leaves the count unknown, which is refused like an attached session.
-	if clients, err := tmuxOutput(tmuxPath, "list-clients", "-F", "#{client_session}"); err == nil {
-		assignClientCounts(current, clients)
-	}
-	name, clients := current[0].name, current[0].clients
-	if clients != "0" && !force {
+	if current.clients != "0" && !force {
 		_, _ = fmt.Fprintf(stderr, "reset-current: %s has %s attached client(s), so nothing was deleted; close them, or run reset-current %s to detach them and delete the shell\n",
-			name, clients, forceFlag)
+			current.name, current.clients, forceFlag)
 		return 1
 	}
 
 	// The leading = makes tmux match the name exactly instead of as a prefix.
-	if _, err := tmuxOutput(tmuxPath, "kill-session", "-t", "="+name); err != nil {
-		_, _ = fmt.Fprintf(stderr, "reset-current: could not delete %s: %v\n", name, err)
+	if _, err := tmuxOutput(tmuxPath, "kill-session", "-t", "="+current.name); err != nil {
+		_, _ = fmt.Fprintf(stderr, "reset-current: could not delete %s: %v\n", current.name, err)
 		return 1
 	}
-	if clients != "0" {
-		_, _ = fmt.Fprintf(stdout, "reset-current: deleted %s and detached %s attached client(s)\n", name, clients)
-		return 0
+	detached := ""
+	if current.clients != "0" {
+		detached = fmt.Sprintf(" and detached %s attached client(s)", current.clients)
 	}
-	_, _ = fmt.Fprintf(stdout, "reset-current: deleted %s\n", name)
+	_, _ = fmt.Fprintf(stdout, "reset-current: deleted %s%s\n", current.name, detached)
 	return 0
+}
+
+// parseResetArgs accepts no argument or exactly --force, and reports whether force was given.
+func parseResetArgs(args []string) (force, ok bool) {
+	switch {
+	case len(args) == 0:
+		return false, true
+	case len(args) == 1 && args[0] == forceFlag:
+		return true, true
+	default:
+		return false, false
+	}
+}
+
+// findSaved returns the listed plugin session with exactly the given name and its client count.
+// An absent server reads as a failed listing, so nothing is found; no command that starts the
+// server runs. A failed client listing leaves the count unknown, which callers treat as attached.
+func findSaved(tmuxPath, name string) (session, bool) {
+	listed, _ := tmuxOutput(tmuxPath, "list-sessions", "-F", format)
+	all := parseSessions(listed)
+	index := slices.IndexFunc(all, func(item session) bool { return item.name == name })
+	if index < 0 {
+		return session{name: "", namespace: "", scope: "", entrypoint: "", clients: ""}, false
+	}
+	current := all[index : index+1]
+	if clients, err := tmuxOutput(tmuxPath, "list-clients", "-F", "#{client_session}"); err == nil {
+		assignClientCounts(current, clients)
+	}
+	return current[0], true
 }

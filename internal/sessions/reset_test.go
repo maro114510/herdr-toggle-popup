@@ -75,6 +75,7 @@ esac
 
 func tmuxCalls(t *testing.T, log string) []string {
 	t.Helper()
+	//nolint:gosec // log is the file the test itself created for the fake tmux.
 	raw, err := os.ReadFile(log)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -105,6 +106,7 @@ func wantOneKill(t *testing.T, log, session string) {
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentDeletesOnlyTheSessionOfTheCurrentWorkspaceContext(t *testing.T) {
 	resetEnv(t, "")
 	log := fakeResetTmux(t, everySession, "")
@@ -120,6 +122,7 @@ func TestResetCurrentDeletesOnlyTheSessionOfTheCurrentWorkspaceContext(t *testin
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentDeletesTheSessionOfTheConfiguredScope(t *testing.T) {
 	tests := map[string]string{
 		"directory": directorySession,
@@ -140,13 +143,16 @@ func TestResetCurrentDeletesTheSessionOfTheConfiguredScope(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentDeletesNothingWhenTheContextCannotBeResolved(t *testing.T) {
 	tests := map[string]func(t *testing.T){
-		"missing Herdr socket path": func(t *testing.T) { t.Setenv("HERDR_SOCKET_PATH", "") },
+		"missing Herdr socket path": func(t *testing.T) { t.Helper(); t.Setenv("HERDR_SOCKET_PATH", "") },
 		"missing focused pane cwd": func(t *testing.T) {
+			t.Helper()
 			t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"workspace_id":"ws1"}`)
 		},
 		"missing workspace id": func(t *testing.T) {
+			t.Helper()
 			t.Setenv("HERDR_WORKSPACE_ID", "")
 			t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":"/focused/cwd"}`)
 		},
@@ -173,6 +179,7 @@ func TestResetCurrentDeletesNothingWhenTheContextCannotBeResolved(t *testing.T) 
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentDeletesNothingWhenTheCurrentSessionIsNotSaved(t *testing.T) {
 	resetEnv(t, "")
 	others := "'" + workspace2Session + "\t" + namespaceA + "\tworkspace\tshell' " +
@@ -207,6 +214,7 @@ func TestResetCurrentWithNoServerDeletesNothingAndStartsNone(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentRefusesAnAttachedSessionAndDeletesNothing(t *testing.T) {
 	resetEnv(t, "")
 	log := fakeResetTmux(t, everySession, "'"+workspace1Session+"' '"+workspace1Session+"' '"+workspace2Session+"'")
@@ -220,7 +228,7 @@ func TestResetCurrentRefusesAnAttachedSessionAndDeletesNothing(t *testing.T) {
 	if got := killCalls(t, log); len(got) != 0 {
 		t.Errorf("mutating tmux calls = %q, want none", got)
 	}
-	for _, want := range []string{workspace1Session, "2 attached client", "--force"} {
+	for _, want := range []string{workspace1Session, "2 attached client", forceFlag} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("stderr = %q, want it to contain %q", stderr.String(), want)
 		}
@@ -243,12 +251,13 @@ func TestResetCurrentRefusesWhenAttachedClientsCannotBeCounted(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentWithForceDeletesOnlyTheAttachedCurrentSession(t *testing.T) {
 	resetEnv(t, "")
 	log := fakeResetTmux(t, everySession, "'"+workspace1Session+"' '"+workspace1Session+"' '"+workspace2Session+"'")
 
 	var stdout, stderr bytes.Buffer
-	if code := ResetCurrent([]string{"--force"}, &stdout, &stderr); code != 0 {
+	if code := ResetCurrent([]string{forceFlag}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -258,8 +267,9 @@ func TestResetCurrentWithForceDeletesOnlyTheAttachedCurrentSession(t *testing.T)
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentRejectsUnknownArguments(t *testing.T) {
-	for _, args := range [][]string{{"--forced"}, {"extra"}, {"--force", "extra"}} {
+	for _, args := range [][]string{{"--forced"}, {"extra"}, {forceFlag, "extra"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			resetEnv(t, "")
 			log := fakeResetTmux(t, everySession, "")
@@ -321,6 +331,7 @@ func listedSessions(tmux func(args ...string) string) string {
 	return tmux("list-sessions", "-F", "#{session_name}")
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentOnRealTmuxKeepsEveryOtherSession(t *testing.T) {
 	_, tmux := realResetServer(t)
 	resetEnv(t, "")
@@ -336,6 +347,7 @@ func TestResetCurrentOnRealTmuxKeepsEveryOtherSession(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses resetEnv, which mutates process env via t.Setenv.
 func TestResetCurrentOnRealTmuxRefusesAnAttachedSessionUnlessForced(t *testing.T) {
 	tmuxPath, tmux := realResetServer(t)
 	resetEnv(t, "")
@@ -367,7 +379,7 @@ func TestResetCurrentOnRealTmuxRefusesAnAttachedSessionUnlessForced(t *testing.T
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := ResetCurrent([]string{"--force"}, &stdout, &stderr); code != 0 {
+	if code := ResetCurrent([]string{forceFlag}, &stdout, &stderr); code != 0 {
 		t.Fatalf("forced exit code = %d, stderr = %q", code, stderr.String())
 	}
 	want := workspace2Session + "\nother-session\n"
