@@ -59,11 +59,11 @@ func fakeResetTmux(t *testing.T, sessionRows, clientRows string) string {
 printf '%s\n' "$*" >> "$TMUX_CALLS"
 case "$*" in
   *list-sessions*)
-    if [ "$FAKE_NO_SERVER" = 1 ]; then exit 1; fi
+    if [ "${FAKE_NO_SERVER:-}" = 1 ]; then exit 1; fi
     printf '%b\n' `+sessionRows+`
     ;;
   *list-clients*)
-    if [ "$FAKE_CLIENTS_FAIL" = 1 ]; then exit 1; fi
+    if [ "${FAKE_CLIENTS_FAIL:-}" = 1 ]; then exit 1; fi
     printf '%s\n' `+clientRows+`
     ;;
 esac
@@ -355,7 +355,7 @@ func TestResetCurrentOnRealTmuxRefusesAnAttachedSessionUnlessForced(t *testing.T
 		_ = client.Wait()
 	})
 	waitForClient(t, tmux)
-	all := workspace1Session + "\n" + workspace2Session + "\nother-session\n"
+	all := workspace2Session + "\n" + workspace1Session + "\nother-session\n"
 
 	var stdout, stderr bytes.Buffer
 	if code := ResetCurrent(nil, &stdout, &stderr); code == 0 {
