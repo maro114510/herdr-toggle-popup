@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	cmdToggle     = "toggle"
-	cmdPopupShell = "popup-shell"
-	cmdSessions   = "sessions"
-	cmdDoctor     = "doctor"
-	cmdVersion    = "version"
+	cmdToggle       = "toggle"
+	cmdPopupShell   = "popup-shell"
+	cmdSessions     = "sessions"
+	cmdResetCurrent = "reset-current"
+	cmdDoctor       = "doctor"
+	cmdVersion      = "version"
 )
 
 const usage = `Usage: toggle-popup <command>
