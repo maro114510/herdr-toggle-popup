@@ -55,20 +55,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 // rejected target leaves the others untouched. Selection is always explicit: no age, client count,
 // or pattern ever selects a session.
 func runDelete(args []string, stdout, stderr io.Writer) int {
-	force := false
-	var targets []string
-	for _, arg := range args {
-		switch {
-		case arg == "--force":
-			force = true
-		case strings.HasPrefix(arg, "-"):
-			_, _ = fmt.Fprintln(stderr, usage)
-			return 1
-		default:
-			targets = append(targets, arg)
-		}
-	}
-	if len(targets) == 0 {
+	force, targets, ok := parseDeleteArgs(args)
+	if !ok {
 		_, _ = fmt.Fprintln(stderr, usage)
 		return 1
 	}
@@ -109,6 +97,22 @@ func runDelete(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "deleted\t%s\n", name)
 	}
 	return 0
+}
+
+// parseDeleteArgs splits the delete arguments into the force flag and the named targets. It
+// reports false for an unknown flag or when no target is named.
+func parseDeleteArgs(args []string) (force bool, targets []string, ok bool) {
+	for _, arg := range args {
+		switch {
+		case arg == "--force":
+			force = true
+		case strings.HasPrefix(arg, "-"):
+			return false, nil, false
+		default:
+			targets = append(targets, arg)
+		}
+	}
+	return force, targets, len(targets) > 0
 }
 
 // refusal explains why name may not be deleted, or returns "" when it may.

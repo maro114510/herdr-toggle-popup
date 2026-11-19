@@ -36,7 +36,7 @@ esac
 	if stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout.String(), want)
 	}
-	if strings.Contains(stdout.String(), "other-session") {
+	if strings.Contains(stdout.String(), foreignSession) {
 		t.Errorf("stdout lists non-plugin session: %q", stdout.String())
 	}
 }
@@ -103,7 +103,7 @@ func TestRunReadsOwnershipOptionsFromRealTmux(t *testing.T) {
 	tmux("set-option", "-t", identified, popupshell.ScopeOption, "workspace")
 	tmux("set-option", "-t", identified, popupshell.EntrypointOption, "shell")
 	tmux("new-session", "-d", "-s", "herdr-toggle-popup-bbbb", "sleep 60")
-	tmux("new-session", "-d", "-s", "other-session", "sleep 60")
+	tmux("new-session", "-d", "-s", foreignSession, "sleep 60")
 
 	var stdout, stderr bytes.Buffer
 	if code := Run(nil, &stdout, &stderr); code != 0 {
@@ -149,6 +149,14 @@ func TestRunWithNoRealServerPrintsEmptyListingWithoutStartingOne(t *testing.T) {
 	}
 }
 
+const (
+	deleteCmd       = "delete"
+	forceFlag       = "--force"
+	detachedSession = "herdr-toggle-popup-detached"
+	foreignSession  = "other-session"
+	notPlugin       = "not a plugin session"
+)
+
 // fakeSessions is a fake tmux whose dedicated server holds an attached identified session, a
 // detached identified session, a legacy session without ownership options, and a foreign session.
 // Every tmux call is appended to $LOG, and kill-session records its target in $KILLED.
@@ -181,6 +189,7 @@ func useFakeTmux(t *testing.T, body string) (killed string) {
 
 func readLines(t *testing.T, path string) string {
 	t.Helper()
+	//nolint:gosec // The test controls the path.
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
@@ -188,6 +197,7 @@ func readLines(t *testing.T, path string) string {
 	return string(data)
 }
 
+//nolint:paralleltest // uses useFakeTmux, which mutates process env via t.Setenv.
 func TestListingNeverKillsAnySession(t *testing.T) {
 	killed := useFakeTmux(t, fakeSessions)
 
@@ -200,11 +210,12 @@ func TestListingNeverKillsAnySession(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses useFakeTmux, which mutates process env via t.Setenv.
 func TestDeleteKillsOnlyTheSelectedDetachedSession(t *testing.T) {
 	killed := useFakeTmux(t, fakeSessions)
 
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"delete", "herdr-toggle-popup-detached"}, &stdout, &stderr); code != 0 {
+	if code := Run([]string{deleteCmd, detachedSession}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -216,11 +227,12 @@ func TestDeleteKillsOnlyTheSelectedDetachedSession(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses useFakeTmux, which mutates process env via t.Setenv.
 func TestDeleteKillsEverySelectedSessionAndNoOther(t *testing.T) {
 	killed := useFakeTmux(t, fakeSessions)
 
 	var stdout, stderr bytes.Buffer
-	args := []string{"delete", "--force", "herdr-toggle-popup-attached", "herdr-toggle-popup-detached"}
+	args := []string{deleteCmd, forceFlag, "herdr-toggle-popup-attached", detachedSession}
 	if code := Run(args, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
@@ -232,19 +244,20 @@ func TestDeleteKillsEverySelectedSessionAndNoOther(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses useFakeTmux, which mutates process env via t.Setenv.
 func TestDeleteRejectsTargetsItMayNotRemoveAndKillsNothing(t *testing.T) {
 	tests := []struct {
 		name      string
 		args      []string
 		wantInMsg string
 	}{
-		{"non-plugin session", []string{"delete", "other-session"}, "not a plugin session"},
-		{"legacy session with unknown ownership", []string{"delete", "herdr-toggle-popup-legacy"}, "unknown ownership"},
-		{"absent session", []string{"delete", "herdr-toggle-popup-missing"}, "not found"},
-		{"attached session without force", []string{"delete", "herdr-toggle-popup-attached"}, "attached"},
-		{"one rejected target spares the valid one", []string{"delete", "herdr-toggle-popup-detached", "other-session"}, "not a plugin session"},
-		{"force never admits a legacy session", []string{"delete", "--force", "herdr-toggle-popup-legacy"}, "unknown ownership"},
-		{"force never admits a non-plugin session", []string{"delete", "--force", "other-session"}, "not a plugin session"},
+		{"non-plugin session", []string{deleteCmd, foreignSession}, notPlugin},
+		{"legacy session with unknown ownership", []string{deleteCmd, "herdr-toggle-popup-legacy"}, "unknown ownership"},
+		{"absent session", []string{deleteCmd, "herdr-toggle-popup-missing"}, "not found"},
+		{"attached session without force", []string{deleteCmd, "herdr-toggle-popup-attached"}, "attached"},
+		{"one rejected target spares the valid one", []string{deleteCmd, detachedSession, foreignSession}, notPlugin},
+		{"force never admits a legacy session", []string{deleteCmd, forceFlag, "herdr-toggle-popup-legacy"}, "unknown ownership"},
+		{"force never admits a non-plugin session", []string{deleteCmd, forceFlag, foreignSession}, notPlugin},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -267,6 +280,7 @@ func TestDeleteRejectsTargetsItMayNotRemoveAndKillsNothing(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses useFakeTmux, which mutates process env via t.Setenv.
 func TestDeleteRefusesWhenClientCountsCannotBeRead(t *testing.T) {
 	killed := useFakeTmux(t, `
 printf '%s\n' "$*" >> "$LOG"
@@ -278,7 +292,7 @@ esac
 `)
 
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"delete", "herdr-toggle-popup-detached"}, &stdout, &stderr); code == 0 {
+	if code := Run([]string{deleteCmd, detachedSession}, &stdout, &stderr); code == 0 {
 		t.Fatal("delete succeeded although attachment could not be determined")
 	}
 	if got := readLines(t, killed); got != "" {
@@ -286,8 +300,9 @@ esac
 	}
 }
 
+//nolint:paralleltest // uses useFakeTmux, which mutates process env via t.Setenv.
 func TestDeleteWithoutTargetsOrWithUnknownFlagIsUsageErrorAndKillsNothing(t *testing.T) {
-	for _, args := range [][]string{{"delete"}, {"delete", "--force"}, {"delete", "--all"}, {"purge"}, {"delete", "--older-than=1h"}} {
+	for _, args := range [][]string{{deleteCmd}, {deleteCmd, forceFlag}, {deleteCmd, "--all"}, {"purge"}, {deleteCmd, "--older-than=1h"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			killed := useFakeTmux(t, fakeSessions)
 
@@ -305,6 +320,7 @@ func TestDeleteWithoutTargetsOrWithUnknownFlagIsUsageErrorAndKillsNothing(t *tes
 	}
 }
 
+//nolint:paralleltest // uses useFakeTmux, which mutates process env via t.Setenv.
 func TestDeleteWithNoServerReportsNotFoundWithoutCreatingOne(t *testing.T) {
 	killed := useFakeTmux(t, `
 printf '%s\n' "$*" >> "$LOG"
@@ -317,7 +333,7 @@ esac
 `)
 
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"delete", "herdr-toggle-popup-detached"}, &stdout, &stderr); code == 0 {
+	if code := Run([]string{deleteCmd, detachedSession}, &stdout, &stderr); code == 0 {
 		t.Fatal("delete succeeded without a server")
 	}
 	if !strings.Contains(stderr.String(), "not found") {
@@ -366,7 +382,7 @@ func TestDeleteRemovesOnlySelectedSessionOnRealTmux(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"delete", "herdr-toggle-popup-aaaa"}, &stdout, &stderr); code != 0 {
+	if code := Run([]string{deleteCmd, "herdr-toggle-popup-aaaa"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
 
