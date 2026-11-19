@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	cmdToggle     = "toggle"
-	cmdPopupShell = "popup-shell"
-	cmdSessions   = "sessions"
-	cmdDoctor     = "doctor"
-	cmdVersion    = "version"
+	cmdToggle       = "toggle"
+	cmdPopupShell   = "popup-shell"
+	cmdSessions     = "sessions"
+	cmdResetCurrent = "reset-current"
+	cmdDoctor       = "doctor"
+	cmdVersion      = "version"
 )
 
 const usage = `Usage: toggle-popup <command>
@@ -28,6 +29,7 @@ Commands:
   toggle           Toggle the popup pane
   popup-shell      Run the shell inside the popup pane
   sessions         List or delete saved toggle-popup sessions
+  reset-current    Discard the saved shell of the current context
   doctor           Print safe diagnostics for support
   version          Print the toggle-popup version
 `
@@ -65,6 +67,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 		newDispatchCmd(cmdToggle, "Toggle the popup pane", toggle.Run),
 		newDispatchCmd(cmdPopupShell, "Run the shell inside the popup pane", popupshell.Run),
 		newDispatchCmd(cmdSessions, "List or delete saved toggle-popup sessions", sessions.Run),
+		newDispatchCmd(cmdResetCurrent, "Discard the saved shell of the current context", sessions.ResetCurrent),
 		newDoctorCmd(),
 		newVersionCmd(),
 	)

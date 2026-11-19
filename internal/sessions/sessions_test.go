@@ -151,7 +151,6 @@ func TestRunWithNoRealServerPrintsEmptyListingWithoutStartingOne(t *testing.T) {
 
 const (
 	deleteCmd       = "delete"
-	forceFlag       = "--force"
 	detachedSession = "herdr-toggle-popup-detached"
 	foreignSession  = "other-session"
 	notPlugin       = "not a plugin session"
