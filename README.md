@@ -116,7 +116,7 @@ To see which saved shells exist, run `toggle-popup sessions`. It prints one tab-
 
 To discard the saved shell of the current context, run `toggle-popup reset-current` from the plugin's environment. It resolves the session from the same namespace, scope, and entrypoint the popup uses, deletes only that session, and the next popup starts a new shell. It deletes nothing when the context cannot be identified, when no saved shell exists for it, or when the attached client count cannot be read. A session with attached clients is refused by default, because deleting it ends the shell those popups show. Run `toggle-popup reset-current --force` to delete it anyway, which detaches every attached client; the command reports how many. Other namespaces, scopes, and sessions are never touched.
 
-To discard any other saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
+To discard other saved shells, name each one: `toggle-popup sessions delete <session>...`, using the session names that `toggle-popup sessions` prints. Nothing is deleted automatically, and neither elapsed time nor an empty client list selects a session, because neither shows that background work in the shell has ended. Every target is checked before any is deleted, so one refused target leaves the rest untouched. The command refuses a name that is not a plugin session, a session not found on the dedicated server, a session with `unknown` ownership, and a session with attached clients. `--force` lifts only the attached-clients refusal and kills the shell under any client attached to it. Remove a legacy session with tmux directly, as described below.
 
 ### Recovering sessions from earlier versions
 

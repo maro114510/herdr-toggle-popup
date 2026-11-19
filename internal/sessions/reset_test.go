@@ -309,7 +309,7 @@ func realResetServer(t *testing.T) (tmuxPath string, tmux func(args ...string) s
 
 	tmux = func(args ...string) string {
 		t.Helper()
-		full := append([]string{"-L", popupshell.SocketName, "-f", "/dev/null"}, args...)
+		full := append([]string{"-L", popupshell.SocketName, "-f", noTmuxConfig}, args...)
 		//nolint:gosec // The test controls the tmux binary and every argument.
 		out, err := exec.Command(tmuxPath, full...).CombinedOutput()
 		if err != nil {
@@ -319,7 +319,7 @@ func realResetServer(t *testing.T) (tmuxPath string, tmux func(args ...string) s
 	}
 	t.Cleanup(func() {
 		//nolint:gosec // The test controls the tmux binary and every argument.
-		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", "/dev/null", "kill-server").Run()
+		_ = exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", noTmuxConfig, "kill-server").Run()
 	})
 	for _, name := range []string{workspace1Session, workspace2Session, "other-session"} {
 		tmux("new-session", "-d", "-s", name, "sleep 60")
@@ -353,7 +353,7 @@ func TestResetCurrentOnRealTmuxRefusesAnAttachedSessionUnlessForced(t *testing.T
 	resetEnv(t, "")
 	// A control-mode client needs no terminal and still counts as an attached client.
 	//nolint:gosec // The test controls the tmux binary and every argument.
-	client := exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", "/dev/null", "-C", "attach-session", "-t", workspace1Session)
+	client := exec.Command(tmuxPath, "-L", popupshell.SocketName, "-f", noTmuxConfig, "-C", "attach-session", "-t", workspace1Session)
 	stdin, err := client.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
