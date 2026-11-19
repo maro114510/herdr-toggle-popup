@@ -112,12 +112,19 @@ jobs:
         with:
           subject-path: dist/toggle-popup_*
 
-      - name: Create GitHub Release
+      # A published immutable release can never gain or replace an asset, so the release stays a
+      # draft until every asset is attached. A draft left by an earlier failed run holds a partial
+      # asset set and is removed first; a published release is never touched.
+      - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release create "${TAG_NAME}" --title "${TAG_NAME}" --generate-notes --verify-tag \
+          set -eu
+          if [ "$(gh release view "${TAG_NAME}" --json isDraft --jq .isDraft 2>/dev/null || true)" = "true" ]; then
+            gh release delete "${TAG_NAME}" --yes
+          fi
+          gh release create "${TAG_NAME}" --draft --title "${TAG_NAME}" --generate-notes --verify-tag \
             dist/toggle-popup_darwin_amd64 \
             dist/toggle-popup_darwin_arm64 \
             dist/toggle-popup_linux_amd64 \
@@ -127,3 +134,10 @@ jobs:
             dist/sbom_toggle-popup_linux_amd64.cdx.json \
             dist/sbom_toggle-popup_linux_arm64.cdx.json \
             dist/checksums.txt
+
+      # Publication freezes the assets, so it comes last and fails unless GitHub reports the release immutable.
+      - name: Publish immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: sh scripts/publish-release.sh "${TAG_NAME}"

@@ -45,6 +45,17 @@ gh attestation verify ./toggle-popup_darwin_arm64 \
 
 `gh attestation verify` recomputes the file digest and rejects an altered binary. Releases published before attestation support have no attestation, so verification fails.
 
+## Verify a release is immutable
+
+The release job attaches every asset to a draft and publishes it last, then fails unless GitHub reports the release immutable. An immutable release keeps its tag and assets fixed, so a download cannot be replaced after publication.
+
+```bash
+gh release view vX.Y.Z --repo maro114510/herdr-toggle-popup --json isImmutable --jq .isImmutable
+gh release verify vX.Y.Z --repo maro114510/herdr-toggle-popup
+```
+
+The first command prints `true` for an immutable release, and the second checks the release attestation. Releases published before this change are not immutable.
+
 ## Inspect the bill of materials
 
 Each release attaches one CycloneDX 1.6 JSON SBOM per distributed binary. [`syft`](https://github.com/anchore/syft), pinned by version and SHA-256 in the [release workflow](./.github/workflows/release.yml), reads the Go build information embedded in the binary, so the listed modules are the ones that binary contains, not what [`go.mod`](./go.mod) requests.
