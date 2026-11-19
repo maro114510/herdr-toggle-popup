@@ -114,7 +114,9 @@ Herdr permits one native popup at a time. Close any existing native popup before
 
 To see which saved shells exist, run `toggle-popup sessions`. It prints one tab-separated row per plugin session with its namespace, scope, entrypoint, session name, and attached client count, and it never attaches to a shell or starts a tmux server. A session created before the plugin recorded its ownership shows `unknown` for namespace, scope, and entrypoint, because its owner cannot be recovered from the hashed name. Sessions the plugin did not create are not listed. Only the dedicated server is read, so a legacy session on the default server does not appear.
 
-To discard a saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
+To discard the saved shell of the current context, run `toggle-popup reset-current` from the plugin's environment. It resolves the session from the same namespace, scope, and entrypoint the popup uses, deletes only that session, and the next popup starts a new shell. It deletes nothing when the context cannot be identified, when no saved shell exists for it, or when the attached client count cannot be read. A session with attached clients is refused by default, because deleting it ends the shell those popups show. Run `toggle-popup reset-current --force` to delete it anyway, which detaches every attached client; the command reports how many. Other namespaces, scopes, and sessions are never touched.
+
+To discard any other saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
 
 ### Recovering sessions from earlier versions
 
