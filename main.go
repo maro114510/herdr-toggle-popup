@@ -10,14 +10,17 @@ import (
 
 	"github.com/maro114510/herdr-toggle-popup/internal/doctor"
 	"github.com/maro114510/herdr-toggle-popup/internal/popupshell"
+	"github.com/maro114510/herdr-toggle-popup/internal/sessions"
 	"github.com/maro114510/herdr-toggle-popup/internal/toggle"
 )
 
 const (
-	cmdToggle     = "toggle"
-	cmdPopupShell = "popup-shell"
-	cmdDoctor     = "doctor"
-	cmdVersion    = "version"
+	cmdToggle       = "toggle"
+	cmdPopupShell   = "popup-shell"
+	cmdSessions     = "sessions"
+	cmdResetCurrent = "reset-current"
+	cmdDoctor       = "doctor"
+	cmdVersion      = "version"
 )
 
 const usage = `Usage: toggle-popup <command>
@@ -25,6 +28,8 @@ const usage = `Usage: toggle-popup <command>
 Commands:
   toggle           Toggle the popup pane
   popup-shell      Run the shell inside the popup pane
+  sessions         List or delete saved toggle-popup sessions
+  reset-current    Discard the saved shell of the current context
   doctor           Print safe diagnostics for support
   version          Print the toggle-popup version
 `
@@ -38,7 +43,8 @@ var version = "dev"
 // cobra's own error/usage output for it).
 var errDispatchFailed = errors.New("dispatch failed")
 
-// dispatchFunc is the signature shared by internal/toggle.Run and internal/popupshell.Run.
+// dispatchFunc is the signature shared by internal/toggle.Run, internal/onpaneclosed.Run, and
+// internal/popupshell.Run.
 type dispatchFunc func(args []string, stdout, stderr io.Writer) int
 
 func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
@@ -60,6 +66,8 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(
 		newDispatchCmd(cmdToggle, "Toggle the popup pane", toggle.Run),
 		newDispatchCmd(cmdPopupShell, "Run the shell inside the popup pane", popupshell.Run),
+		newDispatchCmd(cmdSessions, "List or delete saved toggle-popup sessions", sessions.Run),
+		newDispatchCmd(cmdResetCurrent, "Discard the saved shell of the current context", sessions.ResetCurrent),
 		newDoctorCmd(),
 		newVersionCmd(),
 	)

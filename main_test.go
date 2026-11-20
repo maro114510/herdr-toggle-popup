@@ -30,7 +30,7 @@ func TestRun(t *testing.T) {
 		}{
 			"no args": {
 				args:      nil,
-				wantInMsg: []string{cmdToggle, cmdPopupShell, cmdDoctor},
+				wantInMsg: []string{cmdToggle, cmdPopupShell, cmdSessions, cmdResetCurrent},
 			},
 			"unknown command": {
 				args:      []string{"unknown-cmd"},
@@ -61,30 +61,6 @@ func TestRun(t *testing.T) {
 	})
 }
 
-// TestRun_UsageOmitsRemovedLegacySubcommands pins the removed commands out of the help text, so a
-// user following the usage cannot invoke a command that no longer exists.
-func TestRun_UsageOmitsRemovedLegacySubcommands(t *testing.T) {
-	t.Parallel()
-
-	var stdout, stderr bytes.Buffer
-
-	code := run(nil, &stdout, &stderr)
-
-	if code == 0 {
-		t.Errorf("exit code = 0, want non-zero when no command is given")
-	}
-	for _, removed := range []string{"gc", "on-pane-closed", "on-tab-focused", "registry"} {
-		if strings.Contains(stderr.String(), removed) {
-			t.Errorf("usage = %q, want it to not mention the removed %q command", stderr.String(), removed)
-		}
-	}
-	for _, kept := range []string{cmdToggle, cmdPopupShell, cmdDoctor, cmdVersion} {
-		if !strings.Contains(stderr.String(), kept) {
-			t.Errorf("usage = %q, want it to mention %q", stderr.String(), kept)
-		}
-	}
-}
-
 // toggle is wired to internal/toggle.Run (see internal/toggle for its own test suite); this only
 // asserts main.go actually dispatches to it rather than falling through to the not-implemented
 // or unknown-command branches.
@@ -99,33 +75,6 @@ func TestRun_ToggleDispatchesToToggleSubcommand(t *testing.T) {
 		t.Errorf("exit code = 0, want non-zero for a toggle call missing its entrypoint arg")
 	}
 	assertDispatched(t, stderr.String())
-}
-
-// TestRun_RejectsRemovedLegacySubcommands pins the v0.7.0 removal: gc and the event handlers no
-// longer dispatch, so each name is reported as an unknown command instead of running.
-func TestRun_RejectsRemovedLegacySubcommands(t *testing.T) {
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
-	t.Setenv("HERDR_PANE_ID", "pane-1")
-	t.Setenv("HERDR_TAB_ID", "tab-1")
-
-	//nolint:paralleltest // t.Setenv above is not parallel-safe.
-	for _, command := range []string{"gc", "on-pane-closed", "on-tab-focused"} {
-		t.Run(command, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-
-			code := run([]string{command}, &stdout, &stderr)
-
-			if code == 0 {
-				t.Errorf("exit code = 0, want non-zero for the removed %q command", command)
-			}
-			if !strings.Contains(stderr.String(), "unknown command") {
-				t.Errorf("stderr = %q, want an unknown-command error for the removed %q command", stderr.String(), command)
-			}
-			if strings.HasPrefix(stderr.String(), command+":") {
-				t.Errorf("stderr = %q, want no dispatch to the removed %q command", stderr.String(), command)
-			}
-		})
-	}
 }
 
 // popup-shell is wired to internal/popupshell.Run (see internal/popupshell for its own test
@@ -145,6 +94,25 @@ func TestRun_PopupShellDispatchesToPopupShellSubcommand(t *testing.T) {
 	assertDispatched(t, stderr.String())
 	if !strings.Contains(stderr.String(), "popup-shell") {
 		t.Errorf("stderr = %q, want a popup-shell-prefixed error, confirming dispatch", stderr.String())
+	}
+}
+
+// reset-current is wired to internal/sessions.ResetCurrent (see internal/sessions for its own
+// test suite); an unknown argument is rejected before any tmux or Herdr lookup, so this stays a
+// safe in-process test that only asserts main.go dispatches to it.
+func TestRun_ResetCurrentDispatchesToResetCurrentSubcommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdResetCurrent, "--unknown"}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero for an unknown argument")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "usage: toggle-popup reset-current") {
+		t.Errorf("stderr = %q, want the reset-current usage, confirming dispatch", stderr.String())
 	}
 }
 
@@ -181,5 +149,47 @@ func TestRun_DoctorDispatchesToDoctorSubcommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "toggle-popup diagnostics") {
 		t.Errorf("stdout = %q, want doctor output", stdout.String())
+	}
+}
+
+// Native popups emit no pane lifecycle events and keep no registry, so the legacy overlay event
+// handlers and gc were removed with the overlay surface (#148). Their names must be rejected as
+// unknown commands instead of reaching a subcommand that no longer exists.
+func TestRun_RemovedLegacySubcommandsAreRejectedAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	for _, removed := range [...]string{"on-pane-closed", "on-tab-focused", "gc"} {
+		t.Run(removed, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout, stderr bytes.Buffer
+
+			code := run([]string{removed}, &stdout, &stderr)
+
+			if code == 0 {
+				t.Errorf("exit code = 0, want non-zero for the removed command %q", removed)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "unknown command") {
+				t.Errorf("stderr = %q, want it to report an unknown command", stderr.String())
+			}
+		})
+	}
+}
+
+// Usage lists the commands a caller can run, so it must never name one that was removed.
+func TestRun_UsageOmitsRemovedLegacySubcommands(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	run(nil, &stdout, &stderr)
+
+	for _, removed := range [...]string{"on-pane-closed", "on-tab-focused", "gc"} {
+		if strings.Contains(stderr.String(), removed) {
+			t.Errorf("usage = %q, want it to not name the removed command %q", stderr.String(), removed)
+		}
 	}
 }

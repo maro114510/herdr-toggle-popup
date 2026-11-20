@@ -112,7 +112,11 @@ A saved shell is keyed to its Herdr namespace, its scope, and its entrypoint, an
 
 Herdr permits one native popup at a time. Close any existing native popup before opening this shell.
 
-To discard a saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
+To see which saved shells exist, run `toggle-popup sessions`. It prints one tab-separated row per plugin session with its namespace, scope, entrypoint, session name, and attached client count, and it never attaches to a shell or starts a tmux server. A session created before the plugin recorded its ownership shows `unknown` for namespace, scope, and entrypoint, because its owner cannot be recovered from the hashed name. Sessions the plugin did not create are not listed. Only the dedicated server is read, so a legacy session on the default server does not appear.
+
+To discard the saved shell of the current context, run `toggle-popup reset-current` from the plugin's environment. It resolves the session from the same namespace, scope, and entrypoint the popup uses, deletes only that session, and the next popup starts a new shell. It deletes nothing when the context cannot be identified, when no saved shell exists for it, or when the attached client count cannot be read. A session with attached clients is refused by default, because deleting it ends the shell those popups show. Run `toggle-popup reset-current --force` to delete it anyway, which detaches every attached client; the command reports how many. Other namespaces, scopes, and sessions are never touched.
+
+To discard other saved shells, name each one: `toggle-popup sessions delete <session>...`, using the session names that `toggle-popup sessions` prints. Nothing is deleted automatically, and neither elapsed time nor an empty client list selects a session, because neither shows that background work in the shell has ended. Every target is checked before any is deleted, so one refused target leaves the rest untouched. The command refuses a name that is not a plugin session, a session not found on the dedicated server, a session with `unknown` ownership, and a session with attached clients. `--force` lifts only the attached-clients refusal and kills the shell under any client attached to it. Remove a legacy session with tmux directly, as described below.
 
 ### Recovering sessions from earlier versions
 
@@ -123,6 +127,30 @@ Sessions created before the namespace was part of the identity do not carry a na
 
 Remove an unwanted legacy session on the server that holds it: `tmux -L herdr-toggle-popup kill-session -t <session>` on the dedicated server, or `tmux kill-session -t <session>` on the default server.
 
+Neither v0.6.0 nor v0.7.0 removes a legacy session automatically. See [recover a legacy tmux session](./docs/legacy-overlay-removal.md#recover-a-legacy-tmux-session) for the full procedure and how to move its work to a native popup.
+
+## Legacy overlay support removal
+
+Legacy overlay support is deprecated in v0.6.0 and removed in v0.7.0. Native popups, saved tmux shells, and the `scope`, `close_key`, `width`, and `height` settings are unaffected.
+
+| Release | Legacy overlay support |
+| --- | --- |
+| v0.6.0 | Announced and deprecated. The legacy commands still run, and `popup_size` and `popups.json` are still read. |
+| v0.7.0 | Support ends. The legacy commands and `popup_size` are removed, and the `popups.json` registry is no longer read or written. |
+
+The affected CLI, configuration, and state interfaces change as follows:
+
+| Interface | v0.6.0 | v0.7.0 | Replacement |
+| --- | --- | --- | --- |
+| `toggle-popup gc` | Available; prunes stale `popups.json` entries | Removed; exits as an unknown command | None; native popups do not use a registry |
+| `toggle-popup on-pane-closed` | Available as the legacy `pane.closed` event handler | Removed | None; native popups emit no pane lifecycle event |
+| `toggle-popup on-tab-focused` | Available as the legacy `tab.focused` event handler | Removed | None; the close key closes the popup |
+| `toggle-popup doctor` | Prints the `state:` line and the `popup_size entries` count | Prints neither; still prints the effective `popup size:` | None |
+| `popup_size.<entrypoint>` or `[popup_size]` | Read but not used for native popup dimensions | Ignored | `width` and `height` |
+| `HERDR_PLUGIN_STATE_DIR` / `popups.json` | Read by `toggle`, `doctor`, `gc`, and the event handlers | Never read or written; the file is left in place | None |
+
+The plugin never deletes a legacy tmux session automatically. In v0.6.0 the toggle action closes a visible legacy overlay pane but leaves its tmux session and the `popups.json` file in place; v0.7.0 removes that guard. For the full schedule, migration steps, and separate recovery procedures, see the [legacy overlay removal release guidance](./docs/legacy-overlay-removal.md): [recover a legacy overlay](./docs/legacy-overlay-removal.md#recover-a-legacy-overlay) and [recover a legacy tmux session](./docs/legacy-overlay-removal.md#recover-a-legacy-tmux-session).
+
 ## Directory- and tab-scoped sessions
 
 By default, the saved tmux shell session is scoped to the workspace. To scope it to the focused directory across workspaces, create `$HERDR_PLUGIN_CONFIG_DIR/config.toml` with:
@@ -132,6 +160,10 @@ scope = "directory"
 ```
 
 Use `scope = "tab"` to scope it to a particular tab within a workspace. The popup process reads the invocation context so these scopes also work with native popup panes, which do not receive `HERDR_PANE_ID`.
+
+### Directory identity is the exact cwd string
+
+Inside one Herdr namespace, `scope = "directory"` shares one saved shell across every workspace and tab whose focused pane reports the same `focused_pane_cwd` string, and opens a separate shell for any other string. The plugin compares the string as reported: it does not clean the path, resolve symlinks, or fold case, so `/work/repo`, `/work/repo/`, `/work/REPO`, and a symlink alias of that directory are four identities. A namespace still separates Herdr instances, so the same string in two namespaces opens two shells.
 
 ## Close key
 
@@ -158,6 +190,8 @@ height = 20
 ```
 
 `width` and `height` each accept either a percentage of the terminal area (`"80%"`, from 1% to 100%) or a number of terminal cells (`20`), and each defaults to `100%`. They set the popup's outer size, including its border, exactly as Herdr's own popup dimensions do, and Herdr clamps values below its minimum. An invalid value is ignored with a warning on stderr and falls back to `100%`.
+
+These keys are independent of the legacy `popup_size.<entrypoint>` resize steps. Those steps were never used for native popup dimensions, are deprecated in v0.6.0, and are removed in v0.7.0; use `width` and `height` instead. See the [legacy overlay removal release guidance](./docs/legacy-overlay-removal.md).
 
 ## Removed legacy settings and commands
 
