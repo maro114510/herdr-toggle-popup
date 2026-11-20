@@ -30,7 +30,7 @@ func TestRun(t *testing.T) {
 		}{
 			"no args": {
 				args:      nil,
-				wantInMsg: []string{cmdToggle, cmdPopupShell, cmdSessions},
+				wantInMsg: []string{cmdToggle, cmdPopupShell, cmdSessions, cmdResetCurrent},
 			},
 			"unknown command": {
 				args:      []string{"unknown-cmd"},
@@ -94,6 +94,25 @@ func TestRun_PopupShellDispatchesToPopupShellSubcommand(t *testing.T) {
 	assertDispatched(t, stderr.String())
 	if !strings.Contains(stderr.String(), "popup-shell") {
 		t.Errorf("stderr = %q, want a popup-shell-prefixed error, confirming dispatch", stderr.String())
+	}
+}
+
+// reset-current is wired to internal/sessions.ResetCurrent (see internal/sessions for its own
+// test suite); an unknown argument is rejected before any tmux or Herdr lookup, so this stays a
+// safe in-process test that only asserts main.go dispatches to it.
+func TestRun_ResetCurrentDispatchesToResetCurrentSubcommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{cmdResetCurrent, "--unknown"}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Errorf("exit code = 0, want non-zero for an unknown argument")
+	}
+	assertDispatched(t, stderr.String())
+	if !strings.Contains(stderr.String(), "usage: toggle-popup reset-current") {
+		t.Errorf("stderr = %q, want the reset-current usage, confirming dispatch", stderr.String())
 	}
 }
 
