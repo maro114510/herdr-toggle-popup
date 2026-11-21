@@ -33,111 +33,24 @@ assert_args() {
 
 case "$1 $2" in
   "plugin pane")
-    case "$3" in
-      open)
-        if [ "$9" = "popup" ]; then
-          assert_args "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width ${FAKE_HERDR_EXPECT_WIDTH:-100%} --height ${FAKE_HERDR_EXPECT_HEIGHT:-100%} --cwd /focused/cwd --focus" "$@"
-          exit_code="${FAKE_HERDR_OPEN_EXIT:-0}"
-          if [ "$exit_code" -ne 0 ]; then
-            printf 'stub open failure\n' >&2
-            exit "$exit_code"
-          fi
-          if [ "${FAKE_HERDR_OPEN_MALFORMED:-0}" -eq 1 ]; then
-            printf 'not-json\n'
-            exit 0
-          fi
-          printf '{"result":{"type":"ok"}}\n'
-          exit 0
-        fi
-        assert_args 'plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement overlay --cwd /focused/cwd --focus' "$@"
-        exit_code="${FAKE_HERDR_OPEN_EXIT:-0}"
-        if [ "$exit_code" -ne 0 ]; then
-          printf 'stub open failure\n' >&2
-          exit "$exit_code"
-        fi
-        if [ "${FAKE_HERDR_OPEN_MALFORMED:-0}" -eq 1 ]; then
-          printf 'not-json\n'
-          exit 0
-        fi
-        if [ "${FAKE_HERDR_OPEN_MISSING_PANE_ID:-0}" -eq 1 ]; then
-          printf '{"result":{"plugin_pane":{"pane":{}}}}\n'
-          exit 0
-        fi
-        if [ -n "${FAKE_HERDR_OPEN_DELAY_SECONDS:-}" ]; then
-          sleep "$FAKE_HERDR_OPEN_DELAY_SECONDS"
-        fi
-        pane_id="${FAKE_HERDR_OPEN_PANE_ID:-new-pane-1}"
-        if [ "${FAKE_HERDR_OPEN_OMIT_TAB_ID:-0}" -eq 1 ]; then
-          printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s"}}}}\n' "$pane_id"
-        else
-          tab_id="${FAKE_HERDR_OPEN_TAB_ID:-tab-1}"
-          printf '{"result":{"plugin_pane":{"pane":{"pane_id":"%s","tab_id":"%s"}}}}\n' "$pane_id" "$tab_id"
-        fi
-        exit 0
-        ;;
-      close)
-        assert_args 'plugin pane close pane-1' "$@"
-        exit_code="${FAKE_HERDR_CLOSE_EXIT:-0}"
-        if [ "$exit_code" -ne 0 ]; then
-          printf 'stub close failure\n' >&2
-          exit "$exit_code"
-        fi
-        printf '{"result":{"type":"plugin_pane_closed"}}\n'
-        ;;
-      focus)
-        assert_args 'plugin pane focus pane-1' "$@"
-        exit_code="${FAKE_HERDR_FOCUS_EXIT:-0}"
-        if [ "$exit_code" -ne 0 ]; then
-          printf 'stub focus failure\n' >&2
-          exit "$exit_code"
-        fi
-        printf '{"result":{"type":"plugin_pane_focused"}}\n'
-        ;;
-    esac
-    ;;
-  "pane get")
-    assert_args 'pane get pane-1' "$@"
-    exit_code="${FAKE_HERDR_GET_EXIT:-0}"
+    if [ "$3" != "open" ]; then
+      printf 'fake herdr: unhandled plugin pane subcommand: %s\n' "$*" >&2
+      exit 99
+    fi
+    assert_args "plugin pane open --plugin maro114510.toggle-popup --entrypoint shell --placement popup --width ${FAKE_HERDR_EXPECT_WIDTH:-100%} --height ${FAKE_HERDR_EXPECT_HEIGHT:-100%} --cwd /focused/cwd --focus" "$@"
+    exit_code="${FAKE_HERDR_OPEN_EXIT:-0}"
     if [ "$exit_code" -ne 0 ]; then
-      printf 'stub get failure\n' >&2
+      printf 'stub open failure\n' >&2
       exit "$exit_code"
     fi
-    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3"
-    ;;
-  "pane layout")
-    assert_args 'pane layout --pane pane-1' "$@"
-    exit_code="${FAKE_HERDR_LAYOUT_EXIT:-0}"
-    if [ "$exit_code" -ne 0 ]; then
-      printf 'stub layout failure\n' >&2
-      exit "$exit_code"
-    fi
-    if [ "${FAKE_HERDR_LAYOUT_MALFORMED:-0}" -eq 1 ]; then
+    if [ "${FAKE_HERDR_OPEN_MALFORMED:-0}" -eq 1 ]; then
       printf 'not-json\n'
       exit 0
     fi
-    if [ "${FAKE_HERDR_LAYOUT_SOLO:-0}" -eq 1 ]; then
-      printf '{"result":{"layout":{"panes":[{"pane_id":"%s"}]}}}\n' "$4"
-    else
-      printf '{"result":{"layout":{"panes":[{"pane_id":"%s"},{"pane_id":"pane-sibling"}]}}}\n' "$4"
+    if [ -n "${FAKE_HERDR_OPEN_DELAY_SECONDS:-}" ]; then
+      sleep "$FAKE_HERDR_OPEN_DELAY_SECONDS"
     fi
-    ;;
-  "pane zoom")
-    assert_args 'pane zoom pane-1 --on' "$@"
-    exit_code="${FAKE_HERDR_ZOOM_EXIT:-0}"
-    if [ "$exit_code" -ne 0 ]; then
-      printf 'stub zoom failure\n' >&2
-      exit "$exit_code"
-    fi
-    printf '{"result":{"zoom":{"changed":true}}}\n'
-    ;;
-  "pane resize")
-    assert_args 'pane resize --direction right --amount 0.5 --pane pane-1' "$@"
-    exit_code="${FAKE_HERDR_RESIZE_EXIT:-0}"
-    if [ "$exit_code" -ne 0 ]; then
-      printf 'stub resize failure\n' >&2
-      exit "$exit_code"
-    fi
-    printf '{"result":{"type":"pane_resized"}}\n'
+    printf '{"result":{"type":"ok"}}\n'
     ;;
   *)
     printf 'fake herdr: unhandled args: %s\n' "$*" >&2

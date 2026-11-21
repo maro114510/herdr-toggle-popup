@@ -11,8 +11,9 @@ import (
 
 const (
 	// toggleBinary is the manifest-declared path to the built Go binary.
-	toggleBinary    = "./bin/toggle-popup"
-	shellEntrypoint = "shell"
+	toggleBinary         = "./bin/toggle-popup"
+	shellEntrypoint      = "shell"
+	manifestVersionField = "version"
 )
 
 // manifest mirrors the subset of herdr-plugin.toml this test asserts on. Field order matches the
@@ -120,10 +121,10 @@ func TestManifestV1ContractSchema(t *testing.T) {
 
 	m := loadManifest(t)
 	required := map[string]string{
-		"id":                m.ID,
-		"name":              m.Name,
-		"version":           m.Version,
-		"min_herdr_version": m.MinHerdrVersion,
+		"id":                 m.ID,
+		"name":               m.Name,
+		manifestVersionField: m.Version,
+		"min_herdr_version":  m.MinHerdrVersion,
 	}
 	for field, value := range required {
 		if value == "" {
@@ -133,8 +134,8 @@ func TestManifestV1ContractSchema(t *testing.T) {
 
 	semver := regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 	for field, value := range map[string]string{
-		"version":           m.Version,
-		"min_herdr_version": m.MinHerdrVersion,
+		manifestVersionField: m.Version,
+		"min_herdr_version":  m.MinHerdrVersion,
 	} {
 		if !semver.MatchString(value) {
 			t.Errorf("%s = %q, want MAJOR.MINOR.PATCH", field, value)

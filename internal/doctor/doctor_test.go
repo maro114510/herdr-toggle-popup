@@ -11,11 +11,10 @@ import (
 // Test list:
 //
 // Run
-// - normal plugin environment reports herdr, tmux, plugin root, config, state, and version status
+// - normal plugin environment reports herdr, tmux, plugin root, config, and version status
 // - optional plugin environment values can be missing without crashing or returning non-zero
 // - malformed config is reported without printing the file body
-// - malformed state is reported without rewriting or backing it up
-// - output never includes unrelated environment values, shell history, or config/state file bodies
+// - output never includes unrelated environment values, shell history, or config file bodies
 // - unexpected arguments are rejected without echoing their values
 // - a connected popup session reports identity, versions, effective settings, clipboard capabilities, and client state
 // - an absent tmux server is reported without probing its options or clients
@@ -49,14 +48,13 @@ func writeExecutable(t *testing.T, dir, name string) string {
 	return path
 }
 
-func writeFile(t *testing.T, dir, name, content string) string {
+func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return path
 }
 
 func runDoctor(t *testing.T) (int, string, string) {
@@ -82,7 +80,6 @@ func manifestVersionEnvironment(t *testing.T, version string) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HERDR_BIN_PATH", "")
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
 	t.Setenv("HERDR_SOCKET_PATH", "")
 	t.Setenv("HERDR_WORKSPACE_ID", "")
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", "")
@@ -106,12 +103,8 @@ func TestRun_ReportsNormalPluginEnvironment(t *testing.T) {
 	t.Setenv("HERDR_PLUGIN_ROOT", pluginRoot)
 
 	configDir := t.TempDir()
-	writeFile(t, configDir, "config.toml", "scope = \"directory\"\npopup_size.shell = \"right:0.5:3\"\n")
+	writeFile(t, configDir, "config.toml", "scope = \"directory\"\n")
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
-
-	stateDir := t.TempDir()
-	writeFile(t, stateDir, "popups.json", `{"version":1,"popups":{}}`)
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
 
 	code, stdout, stderr := runDoctor(t)
 
@@ -127,9 +120,7 @@ func TestRun_ReportsNormalPluginEnvironment(t *testing.T) {
 		"tmux: ok",
 		"plugin root: ok",
 		"config: ok",
-		"state: ok",
 		"scope=directory",
-		"entries=0",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout = %q, want it to contain %q", stdout, want)
@@ -178,7 +169,6 @@ func TestRun_MissingOptionalEnvironmentReportsMissing(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HERDR_PLUGIN_ROOT", "")
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
 
 	code, stdout, stderr := runDoctor(t)
 
@@ -193,7 +183,6 @@ func TestRun_MissingOptionalEnvironmentReportsMissing(t *testing.T) {
 		"tmux: missing",
 		"plugin root: missing",
 		"config: missing",
-		"state: missing",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout = %q, want it to contain %q", stdout, want)
@@ -218,10 +207,6 @@ func TestRun_DoesNotPrintSecretsOrFileBodies(t *testing.T) {
 	writeFile(t, configDir, "config.toml", "not valid toml {{{ super-secret-config-value\n")
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
 
-	stateDir := t.TempDir()
-	statePath := writeFile(t, stateDir, "popups.json", `{"version":1,"popups":`)
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
-
 	code, stdout, stderr := runDoctor(t)
 
 	if code != 0 {
@@ -230,30 +215,17 @@ func TestRun_DoesNotPrintSecretsOrFileBodies(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr = %q, want empty", stderr)
 	}
-	for _, want := range []string{
-		"config: error",
-		"state: error",
-	} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("stdout = %q, want it to contain %q", stdout, want)
-		}
+	if !strings.Contains(stdout, "config: error") {
+		t.Errorf("stdout = %q, want it to contain %q", stdout, "config: error")
 	}
 	for _, unwanted := range []string{
 		"super-secret-token",
 		"history-with-private-command",
 		"super-secret-config-value",
-		`{"version":1,"popups":`,
 	} {
 		if strings.Contains(stdout, unwanted) {
 			t.Errorf("stdout = %q, want it to not contain %q", stdout, unwanted)
 		}
-	}
-	if _, err := os.Stat(statePath + ".bak"); err == nil {
-		t.Fatalf("doctor created a state backup, but diagnostics must be non-mutating")
-	}
-	//nolint:gosec // statePath is created by this test under t.TempDir.
-	if got, err := os.ReadFile(statePath); err != nil || string(got) != `{"version":1,"popups":` {
-		t.Fatalf("state file changed: content=%q err=%v", string(got), err)
 	}
 }
 
@@ -360,16 +332,12 @@ func setupPopupEnvironment(t *testing.T, configContent string) string {
 	writeFile(t, configDir, "config.toml", configContent)
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", configDir)
 
-	stateDir := t.TempDir()
-	writeFile(t, stateDir, "popups.json", `{"version":1,"popups":{}}`)
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", stateDir)
-
 	return logPath
 }
 
 //nolint:paralleltest // The test installs the plugin environment and fake tools process-wide.
 func TestRun_ConnectedSessionReportsConnectionSettingsAndClipboard(t *testing.T) {
-	logPath := setupPopupEnvironment(t, "scope = \"workspace\"\nwidth = \"80%\"\nheight = 20\nclose_key = \"M-l\"\npopup_size.shell = \"right:0.5:3\"\n")
+	logPath := setupPopupEnvironment(t, "scope = \"workspace\"\nwidth = \"80%\"\nheight = 20\nclose_key = \"M-l\"\n")
 
 	code, stdout, stderr := runDoctor(t)
 
@@ -382,7 +350,7 @@ func TestRun_ConnectedSessionReportsConnectionSettingsAndClipboard(t *testing.T)
 	for _, want := range []string{
 		"herdr version: ok (0.9.5)",
 		"tmux version: ok (3.7c)",
-		"config: ok (scope=workspace, popup_size entries=1)",
+		"config: ok (scope=workspace)",
 		"popup size: width=80%, height=20",
 		"connection: ok (namespace=" + diagnosticNamespace + ", scope=workspace, session=" + diagnosticSession + ", entrypoint=shell)",
 		"terminal: TERM=xterm-256color, TERM_PROGRAM=ghostty",
@@ -400,6 +368,36 @@ func TestRun_ConnectedSessionReportsConnectionSettingsAndClipboard(t *testing.T)
 		}
 	}
 	assertReadOnlyTmuxLog(t, logPath)
+}
+
+// TestRun_DoesNotDiagnoseLegacyRegistryOrResizeConfiguration pins the v0.7.0 removal: doctor still
+// reports the effective native settings but no longer inspects or reports the legacy surface.
+//
+//nolint:paralleltest // setupPopupEnvironment installs the plugin environment process-wide.
+func TestRun_DoesNotDiagnoseLegacyRegistryOrResizeConfiguration(t *testing.T) {
+	setupPopupEnvironment(t, "scope = \"workspace\"\npopup_size.shell = \"right:0.5:3\"\n")
+
+	code, stdout, stderr := runDoctor(t)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+	for _, removed := range []string{"state:", "popup_size"} {
+		if strings.Contains(stdout, removed) {
+			t.Errorf("stdout = %q, want it to not report the removed %q diagnosis", stdout, removed)
+		}
+	}
+	for _, kept := range []string{
+		"config: ok (scope=workspace)",
+		"popup size: width=100%, height=100%",
+	} {
+		if !strings.Contains(stdout, kept) {
+			t.Errorf("stdout = %q, want it to still contain %q", stdout, kept)
+		}
+	}
 }
 
 func TestRun_AbsentServerIsReportedWithoutProbingOptionsOrClients(t *testing.T) {
@@ -467,7 +465,6 @@ func TestRun_MissingContextAndToolsStillDiagnosesConfiguredValues(t *testing.T) 
 	t.Setenv("HERDR_BIN_PATH", "")
 	t.Setenv("HERDR_PLUGIN_ROOT", "")
 	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
 	t.Setenv("HERDR_SOCKET_PATH", "")
 	t.Setenv("HERDR_WORKSPACE_ID", "")
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", "")
@@ -492,7 +489,6 @@ func TestRun_MissingContextAndToolsStillDiagnosesConfiguredValues(t *testing.T) 
 		"terminal: TERM=unset, TERM_PROGRAM=unset",
 		"Ms: unknown (TERM is not set)",
 		"tmux server: unknown (tmux missing)",
-		"state: missing",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout = %q, want it to contain %q", stdout, want)

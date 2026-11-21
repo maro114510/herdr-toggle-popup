@@ -3,14 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
-)
-
-const (
-	testDirectionRight = "right"
-	testAmountHalf     = "0.5"
 )
 
 // writeConfigFile creates config.toml with content under a fresh temp dir and returns the dir,
@@ -141,46 +135,6 @@ func TestIsValidScope_Empty(t *testing.T) {
 	}
 }
 
-func TestLoad_PopupSizeDottedKey(t *testing.T) {
-	t.Setenv(configDirEnvVar, writeConfigFile(t, `popup_size.shell = "right:0.5:3 down:0.5:3"`+"\n"))
-
-	cfg := Load()
-
-	if got := cfg.PopupSizeSteps("shell"); got != "right:0.5:3 down:0.5:3" {
-		t.Errorf("PopupSizeSteps(shell) = %q, want %q", got, "right:0.5:3 down:0.5:3")
-	}
-}
-
-func TestLoad_PopupSizeTableForm(t *testing.T) {
-	t.Setenv(configDirEnvVar, writeConfigFile(t, "[popup_size]\nshell = \"right:0.5:3 down:0.5:3\"\n"))
-
-	cfg := Load()
-
-	if got := cfg.PopupSizeSteps("shell"); got != "right:0.5:3 down:0.5:3" {
-		t.Errorf("PopupSizeSteps(shell) = %q, want %q", got, "right:0.5:3 down:0.5:3")
-	}
-}
-
-func TestLoad_PopupSizeAbsent_ReturnsEmpty(t *testing.T) {
-	t.Setenv(configDirEnvVar, writeConfigFile(t, `scope = "workspace"`+"\n"))
-
-	cfg := Load()
-
-	if got := cfg.PopupSizeSteps("shell"); got != "" {
-		t.Errorf("PopupSizeSteps(shell) = %q, want empty", got)
-	}
-}
-
-func TestLoad_PopupSizeDifferentEntrypointNotApplied(t *testing.T) {
-	t.Setenv(configDirEnvVar, writeConfigFile(t, `popup_size.git = "right:0.5:2"`+"\n"))
-
-	cfg := Load()
-
-	if got := cfg.PopupSizeSteps("shell"); got != "" {
-		t.Errorf("PopupSizeSteps(shell) = %q, want empty when only git is configured", got)
-	}
-}
-
 // scope = secret-value is invalid TOML (an unquoted value), and BurntSushi's own message quotes
 // the offending token. The warning must report the failure without echoing that fragment.
 func TestLoad_MalformedTOML_WarnsAndFallsBackWithoutEchoingContents(t *testing.T) {
@@ -190,9 +144,6 @@ func TestLoad_MalformedTOML_WarnsAndFallsBackWithoutEchoingContents(t *testing.T
 
 	if cfg.Scope != defaultScope {
 		t.Errorf("Scope = %q, want %q on malformed config", cfg.Scope, defaultScope)
-	}
-	if got := cfg.PopupSizeSteps("shell"); got != "" {
-		t.Errorf("PopupSizeSteps(shell) = %q, want empty on malformed config", got)
 	}
 	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "could not parse") {
 		t.Fatalf("Warnings = %v, want one parse warning", cfg.Warnings)
@@ -534,69 +485,5 @@ func TestIsValidCloseKey(t *testing.T) {
 		if got := isValidCloseKey(tc.key); got != tc.want {
 			t.Errorf("isValidCloseKey(%q) = %v, want %v", tc.key, got, tc.want)
 		}
-	}
-}
-
-func TestParseSizeSteps_Empty(t *testing.T) {
-	t.Parallel()
-
-	if got := ParseSizeSteps(""); got != nil {
-		t.Errorf("ParseSizeSteps(\"\") = %v, want nil", got)
-	}
-}
-func TestParseSizeSteps_SingleStep(t *testing.T) {
-	t.Parallel()
-
-	want := []SizeStep{{Direction: testDirectionRight, Amount: testAmountHalf, Count: 3}}
-	if got := ParseSizeSteps("right:0.5:3"); !reflect.DeepEqual(got, want) {
-		t.Errorf("ParseSizeSteps() = %+v, want %+v", got, want)
-	}
-}
-
-func TestParseSizeSteps_MultipleSteps(t *testing.T) {
-	t.Parallel()
-
-	want := []SizeStep{
-		{Direction: testDirectionRight, Amount: testAmountHalf, Count: 2},
-		{Direction: "down", Amount: "0.25", Count: 1},
-	}
-	if got := ParseSizeSteps("right:0.5:2 down:0.25:1"); !reflect.DeepEqual(got, want) {
-		t.Errorf("ParseSizeSteps() = %+v, want %+v", got, want)
-	}
-}
-
-func TestParseSizeSteps_MalformedDirectionSkipped(t *testing.T) {
-	t.Parallel()
-
-	if got := ParseSizeSteps("sideways:0.5:2"); got != nil {
-		t.Errorf("ParseSizeSteps() = %+v, want nil", got)
-	}
-}
-
-func TestParseSizeSteps_MalformedAmountSkipped(t *testing.T) {
-	t.Parallel()
-
-	if got := ParseSizeSteps("right:notanumber:2"); got != nil {
-		t.Errorf("ParseSizeSteps() = %+v, want nil", got)
-	}
-}
-
-func TestParseSizeSteps_MalformedCountSkipped(t *testing.T) {
-	t.Parallel()
-
-	if got := ParseSizeSteps("down:0.5:0"); got != nil {
-		t.Errorf("ParseSizeSteps() = %+v, want nil for a zero count", got)
-	}
-}
-
-func TestParseSizeSteps_MixedMalformedAndValid(t *testing.T) {
-	t.Parallel()
-
-	// Mirrors tests/toggle.bats: "a malformed step is skipped, other valid steps in the same value
-	// still run".
-	got := ParseSizeSteps("sideways:0.5:2 right:notanumber:2 down:0.5:0 up:0.5:1")
-	want := []SizeStep{{Direction: "up", Amount: testAmountHalf, Count: 1}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ParseSizeSteps() = %+v, want %+v", got, want)
 	}
 }

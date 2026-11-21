@@ -219,6 +219,19 @@ height = 20
 
 These keys are independent of the legacy `popup_size.<entrypoint>` resize steps. Those steps were never used for native popup dimensions, are deprecated in v0.6.0, and are removed in v0.7.0; use `width` and `height` instead. See the [legacy overlay removal release guidance](./docs/legacy-overlay-removal.md).
 
+## Removed legacy settings and commands
+
+Support for the pre-native overlay implementation ends in v0.7.0. The following are no longer read or accepted:
+
+| Removed | Replacement |
+| --- | --- |
+| `popup_size.<entrypoint>` resize steps | `width` and `height` |
+| `gc` subcommand | No replacement; native popups are not registered |
+| `on-pane-closed` subcommand | No replacement; native popups emit no pane lifecycle event |
+| `on-tab-focused` subcommand | No replacement; native popups emit no tab-focus event |
+
+`HERDR_PLUGIN_STATE_DIR` and `popups.json` are also unused. The plugin never deletes an existing `popups.json` or any saved tmux session, so remove them yourself after you no longer need them.
+
 ## Invalid configuration
 
 A `config.toml` that cannot be read or parsed is reported on stderr and the plugin continues with the defaults, so a broken file never blocks the toggle. A missing file is the normal opt-out and stays silent.
