@@ -56,6 +56,32 @@ gh release verify vX.Y.Z --repo maro114510/herdr-toggle-popup
 
 The first command prints `true` for an immutable release, and the second checks the release attestation. Releases published before this change are not immutable.
 
+## Verify a release tag
+
+Every release tag is annotated and signed. Verify the tag before you trust the release notes or the assets attached to them:
+
+```bash
+git fetch --tags origin
+git show origin/main:.github/release-signing-key.asc | gpg --import
+git verify-tag vX.Y.Z
+git merge-base --is-ancestor "$(git rev-parse vX.Y.Z^{commit})" origin/main
+```
+
+| Command | Checks |
+| --- | --- |
+| `gpg --import` | The trusted keys are the ones on `main`, not a key the tag chose. |
+| `git verify-tag` | The tag carries a valid signature from one of those keys. An unsigned tag or a foreign key fails. |
+| `git merge-base --is-ancestor` | The tagged commit is on `main`. |
+
+Compare the signing key fingerprint with the one in the release notes and in [the design record](./docs/design/release-protection.md) out of band, then ask GitHub for its own verdict:
+
+```bash
+tag_sha="$(gh api repos/maro114510/herdr-toggle-popup/git/ref/tags/vX.Y.Z --jq '.object.sha')"
+gh api "repos/maro114510/herdr-toggle-popup/git/tags/${tag_sha}" --jq '.verification.verified'
+```
+
+Releases published before tag signing was enforced carry no signature, so verification fails.
+
 ## Inspect the bill of materials
 
 Each release attaches one CycloneDX 1.6 JSON SBOM per distributed binary. [`syft`](https://github.com/anchore/syft), pinned by version and SHA-256 in the [release workflow](./.github/workflows/release.yml), reads the Go build information embedded in the binary, so the listed modules are the ones that binary contains, not what [`go.mod`](./go.mod) requests.
@@ -123,7 +149,11 @@ A saved shell is keyed to its Herdr namespace, its scope, and its entrypoint, an
 
 Herdr permits one native popup at a time. Close any existing native popup before opening this shell.
 
-To discard a saved popup shell session, use `tmux -L herdr-toggle-popup ls` and `tmux -L herdr-toggle-popup kill-session -t <session>`.
+To see which saved shells exist, run `toggle-popup sessions`. It prints one tab-separated row per plugin session with its namespace, scope, entrypoint, session name, and attached client count, and it never attaches to a shell or starts a tmux server. A session created before the plugin recorded its ownership shows `unknown` for namespace, scope, and entrypoint, because its owner cannot be recovered from the hashed name. Sessions the plugin did not create are not listed. Only the dedicated server is read, so a legacy session on the default server does not appear.
+
+To discard the saved shell of the current context, run `toggle-popup reset-current` from the plugin's environment. It resolves the session from the same namespace, scope, and entrypoint the popup uses, deletes only that session, and the next popup starts a new shell. It deletes nothing when the context cannot be identified, when no saved shell exists for it, or when the attached client count cannot be read. A session with attached clients is refused by default, because deleting it ends the shell those popups show. Run `toggle-popup reset-current --force` to delete it anyway, which detaches every attached client; the command reports how many. Other namespaces, scopes, and sessions are never touched.
+
+To discard other saved shells, name each one: `toggle-popup sessions delete <session>...`, using the session names that `toggle-popup sessions` prints. Nothing is deleted automatically, and neither elapsed time nor an empty client list selects a session, because neither shows that background work in the shell has ended. Every target is checked before any is deleted, so one refused target leaves the rest untouched. The command refuses a name that is not a plugin session, a session not found on the dedicated server, a session with `unknown` ownership, and a session with attached clients. `--force` lifts only the attached-clients refusal and kills the shell under any client attached to it. Remove a legacy session with tmux directly, as described below.
 
 ### Recovering sessions from earlier versions
 
@@ -199,6 +229,19 @@ height = 20
 `width` and `height` each accept either a percentage of the terminal area (`"80%"`, from 1% to 100%) or a number of terminal cells (`20`), and each defaults to `100%`. They set the popup's outer size, including its border, exactly as Herdr's own popup dimensions do, and Herdr clamps values below its minimum. An invalid value is ignored with a warning on stderr and falls back to `100%`.
 
 These keys are independent of the legacy `popup_size.<entrypoint>` resize steps. Those steps were never used for native popup dimensions, are deprecated in v0.6.0, and are removed in v0.7.0; use `width` and `height` instead. See the [legacy overlay removal release guidance](./docs/legacy-overlay-removal.md).
+
+## Removed legacy settings and commands
+
+Support for the pre-native overlay implementation ends in v0.7.0. The following are no longer read or accepted:
+
+| Removed | Replacement |
+| --- | --- |
+| `popup_size.<entrypoint>` resize steps | `width` and `height` |
+| `gc` subcommand | No replacement; native popups are not registered |
+| `on-pane-closed` subcommand | No replacement; native popups emit no pane lifecycle event |
+| `on-tab-focused` subcommand | No replacement; native popups emit no tab-focus event |
+
+`HERDR_PLUGIN_STATE_DIR` and `popups.json` are also unused. The plugin never deletes an existing `popups.json` or any saved tmux session, so remove them yourself after you no longer need them.
 
 ## Invalid configuration
 

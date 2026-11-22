@@ -140,6 +140,7 @@ A release may be published only when all of these hold.
 3. `herdr-plugin.toml` at the tagged commit has a `version` equal to the tag name without the leading `v`.
 4. Four binaries, `checksums.txt`, artifact attestations, and a machine readable software bill of materials all exist.
 5. The release is published from a draft as an immutable release with every asset attached first.
+6. The four binaries are reproducible from the tagged source: a second independent build matches every digest and embeds the tag version, as the [reproducible build record](./reproducible-builds.md) defines.
 
 `make release` merges the bump first and then pushes the signed tag, replacing the direct push path.
 

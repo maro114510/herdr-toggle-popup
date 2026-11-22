@@ -21,6 +21,27 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The verification fetches refs/tags and main, which a shallow clone cannot serve.
+          fetch-depth: 0
+      - name: Verify tag signature and ancestry
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: sh scripts/verify-release-tag.sh "${TAG_NAME}"
+      # GitHub's verdict needs the signing key on the maintainer account. It is not a security
+      # boundary, because a ruleset cannot enforce a tag signature.
+      - name: Verify GitHub tag verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG_NAME}" --jq '.object.sha')"
+          verified="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_sha}" --jq '.verification.verified')"
+          if [ "${verified}" != "true" ]; then
+            echo "::error::GitHub did not verify ${TAG_NAME}. Register the release signing key on the maintainer account."
+            exit 1
+          fi
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -53,27 +74,25 @@ jobs:
           MANIFEST_VERSION="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' herdr-plugin.toml | head -n 1)"
           test "${MANIFEST_VERSION}" = "${VERSION}" || { echo "herdr-plugin.toml has version ${MANIFEST_VERSION}, expected ${VERSION}"; exit 1; }
 
-      - name: Build cross-compiled binaries
+      - name: Build reproducible binaries
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -eu
           VERSION="${TAG_NAME#v}"
-          mkdir -p dist
-          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
-            goos="${target%/*}"
-            goarch="${target#*/}"
-            echo "Building ${goos}/${goarch}"
-            CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" go build \
-              -trimpath \
-              -ldflags "-s -w -X main.version=${VERSION}" \
-              -o "dist/toggle-popup_${goos}_${goarch}" .
-          done
+          sh scripts/reproducible-build.sh "${VERSION}" dist
 
       - name: Smoke test linux/amd64 binary
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -eu
-          ./dist/toggle-popup_linux_amd64 version
+          VERSION="${TAG_NAME#v}"
+          reported="$(./dist/toggle-popup_linux_amd64 version)"
+          test "${reported}" = "${VERSION}" || {
+            echo "linux/amd64 binary reports ${reported}, expected ${VERSION}"
+            exit 1
+          }
 
       # Both tools are fetched by version and verified against their published SHA-256,
       # because an installer script would resolve to whatever it points at that day.

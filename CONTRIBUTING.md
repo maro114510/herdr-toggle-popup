@@ -46,12 +46,17 @@ CI runs these checks on every pull request.
 | Real tmux server tests | `go test -count=1 -run TestTmuxAttachScript ./internal/popupshell/` |
 | Race detection | `go test -race ./...` |
 | Vulnerabilities | `govulncheck ./...` |
+| Release reproducibility | `sh scripts/reproducible-build.sh 0.0.0-ci dist/repro` |
 | Shell scripts | `shellcheck scripts/*.sh` |
 | Lint | `golangci-lint run` |
 
 `gofmt` must print nothing. `go fix` must not modify tracked Go files. `go mod tidy` must not modify `go.mod` or `go.sum`. `golangci-lint` uses [.golangci.yml](./.golangci.yml).
 
+The reproducibility check builds each target twice, once from the working tree and once from an exported copy of `HEAD` at another path, so run it from a clean checkout. The [reproducible build record](./docs/design/reproducible-builds.md) lists the fixed inputs and the limits.
+
 The real tmux server tests skip themselves when tmux is missing or older than 3.4. CI sets `HERDR_TEST_REQUIRE_TMUX=1`, so either condition fails them instead, and runs them on both versions in the [compatibility record](./docs/design/tmux-compatibility.md).
+
+The release tag verification tests generate throwaway GPG keys, so they need `gpg` on PATH and skip themselves when it is missing.
 
 ```bash
 HERDR_TEST_REQUIRE_TMUX=1 go test -count=1 -run TestTmuxAttachScript ./internal/popupshell/
@@ -88,10 +93,15 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [main.go](./main.go) | CLI entry point and command wiring |
 | [internal/](./internal) | Plugin behavior grouped by concern, each package with tests |
 | [scripts/build.sh](./scripts/build.sh) | The Herdr build step |
+| [scripts/release.sh](./scripts/release.sh) | Merges the manifest bump and pushes the signed release tag |
+| [scripts/verify-release-tag.sh](./scripts/verify-release-tag.sh) | Release tag signature and ancestry check |
+| [.github/rulesets/release-tags.json](./.github/rulesets/release-tags.json) | Tag ruleset applied to `refs/tags/v*` |
+| [scripts/reproducible-build.sh](./scripts/reproducible-build.sh) | Builds the four release targets twice and verifies their digests and version |
 | [scripts/generate-sbom.sh](./scripts/generate-sbom.sh) | SBOM generation and validation for the release binaries |
 | [scripts/publish-release.sh](./scripts/publish-release.sh) | Publishes the draft release once every asset is attached and confirms it is immutable |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
+| [docs/design/reproducible-builds.md](./docs/design/reproducible-builds.md) | Fixed release-build inputs, verification, and reproducibility limits |
 | [docs/design/release-protection.md](./docs/design/release-protection.md) | Release signing, tag protection, and required-check policy |
 | [docs/design/tmux-compatibility.md](./docs/design/tmux-compatibility.md) | Minimum tmux version, required capabilities, and compatibility CI targets |
 | [docs/smoke-test-clipboard.md](./docs/smoke-test-clipboard.md) | Manual macOS check that a popup drag reaches the host clipboard |
@@ -127,6 +137,45 @@ Preview the next version with `make next-version`.
 
 Respond to review with follow-up commits instead of rewriting history.
 
+## Release
+
+Releases follow the [release protection design](./docs/design/release-protection.md): the tag is signed, `main` accepts the version bump only through a pull request, and the release workflow verifies the tag before it publishes.
+
+### One-time setup
+
+A release cannot publish until every step below is done. The workflow fails closed and names the missing step.
+
+1. Create the offline signing key described in the design's "Signing key" table, and keep the private key on offline media or a hardware token.
+2. Commit the armored public key as `.github/release-signing-key.asc` on `main` through a pull request. The workflow trusts only the keys in this file.
+3. Register the same public key on the maintainer's GitHub account, so GitHub's verdict on the tag agrees with the workflow.
+4. Record the key fingerprint in the design record.
+5. Apply the tag ruleset, which blocks tag updates, deletion, and force pushes, and requires the CI checks:
+
+```bash
+gh api --method POST repos/maro114510/herdr-toggle-popup/rulesets \
+  --input .github/rulesets/release-tags.json
+gh api repos/maro114510/herdr-toggle-popup/rulesets \
+  --jq '.[] | select(.target == "tag") | {name, enforcement, rules: [.rules[].type]}'
+```
+
+Rotation and revocation follow the design record. Add the new public key to `.github/release-signing-key.asc` and keep the retired one, because `git verify-tag` trusts that file and historical tags must stay verifiable.
+
+### Publish a release
+
+```bash
+make release
+```
+
+It computes the next version with `git-cliff`, opens the manifest bump as a pull request, waits for the checks, merges it, and pushes the signed tag from the merge commit. It needs `gh`, `git-cliff`, and a configured `user.signingkey`.
+
+Check a tag without publishing it:
+
+```bash
+sh scripts/verify-release-tag.sh vX.Y.Z
+```
+
+The script fetches the tag and `main`, imports the committed keys into a throwaway keyring, and fails on an unsigned tag, a key outside the file, or a commit that `main` does not reach.
+
 ## Bug reports and feature requests
 
 Use the repository issue forms.
@@ -142,7 +191,7 @@ Run diagnostics before filing a bug.
 "$HERDR_PLUGIN_ROOT/bin/toggle-popup" doctor
 ```
 
-`doctor` prints versions, tool presence, configuration scope, and registry counts. It does not print shell contents.
+`doctor` prints versions, tool presence, configuration scope, and effective popup settings. It does not print shell contents or saved-session contents.
 
 ## Keep secrets out
 

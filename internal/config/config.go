@@ -1,5 +1,5 @@
 // Package config reads the plugin's opt-in settings from $HERDR_PLUGIN_CONFIG_DIR/config.toml.
-// Settings cover popup scoping, the close key, native dimensions, and resize steps.
+// Settings cover popup scoping, the close key, and native dimensions.
 package config
 
 import (
@@ -21,10 +21,6 @@ const (
 	defaultScope    = "workspace"
 	scopeDirectory  = "directory"
 	scopeTab        = "tab"
-
-	// stepFields is the number of colon-separated fields a size step splits into: direction,
-	// amount, and count (with any extra colons folded into count, matching bash's `read`).
-	stepFields = 3
 
 	// DefaultCloseKey closes the popup and matches the documented alt+l binding.
 	DefaultCloseKey = "M-l"
@@ -56,15 +52,14 @@ var closeKeyPattern = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 // in Warnings so the caller can tell the user why their settings were not applied; the failure
 // never fails the toggle.
 type Config struct {
-	Scope     string
-	PopupSize map[string]string
+	Scope string
 
 	// CloseKey is the tmux key that closes the popup and defaults to DefaultCloseKey.
 	CloseKey string
 
 	// Width and Height are the native popup outer dimensions to pass to Herdr's --width and
-	// --height, each defaulting to 100%. They are distinct from PopupSize, the legacy
-	// resize-step configuration, and may be either a percentage ("80%") or a cell count ("20").
+	// --height, each defaulting to 100%. They may be either a percentage ("80%") or a cell count
+	// ("20").
 	Width  string
 	Height string
 
@@ -76,12 +71,11 @@ type Config struct {
 // Load reads every setting from $HERDR_PLUGIN_CONFIG_DIR/config.toml.
 func Load() Config {
 	def := Config{
-		Scope:     defaultScope,
-		PopupSize: nil,
-		CloseKey:  DefaultCloseKey,
-		Width:     defaultPopupDimension,
-		Height:    defaultPopupDimension,
-		Warnings:  nil,
+		Scope:    defaultScope,
+		CloseKey: DefaultCloseKey,
+		Width:    defaultPopupDimension,
+		Height:   defaultPopupDimension,
+		Warnings: nil,
 	}
 
 	dir := os.Getenv(configDirEnvVar)
@@ -90,11 +84,10 @@ func Load() Config {
 	}
 
 	var parsed struct {
-		Scope     string            `toml:"scope"`
-		PopupSize map[string]string `toml:"popup_size"`
-		CloseKey  string            `toml:"close_key"`
-		Width     any               `toml:"width"`
-		Height    any               `toml:"height"`
+		Scope    string `toml:"scope"`
+		CloseKey string `toml:"close_key"`
+		Width    any    `toml:"width"`
+		Height   any    `toml:"height"`
 	}
 	path := filepath.Clean(filepath.Join(dir, configFile))
 	//nolint:gosec // path is HERDR_PLUGIN_CONFIG_DIR joined with the fixed configFile name.
@@ -118,12 +111,11 @@ func Load() Config {
 	width, widthWarning := resolveDimension("width", parsed.Width)
 	height, heightWarning := resolveDimension("height", parsed.Height)
 	cfg := Config{
-		Scope:     scope,
-		PopupSize: parsed.PopupSize,
-		CloseKey:  closeKey,
-		Width:     width,
-		Height:    height,
-		Warnings:  nil,
+		Scope:    scope,
+		CloseKey: closeKey,
+		Width:    width,
+		Height:   height,
+		Warnings: nil,
 	}
 	for _, warning := range []string{widthWarning, heightWarning, closeKeyWarning} {
 		if warning != "" {
@@ -230,64 +222,4 @@ func IsValidScope(scope string) bool {
 	default:
 		return false
 	}
-}
-
-// PopupSizeSteps returns the raw popup_size.<entrypoint> value, or "" when absent.
-func (c Config) PopupSizeSteps(entrypoint string) string {
-	return c.PopupSize[entrypoint]
-}
-
-// SizeStep is one direction/amount/count resize step applied against a newly opened popup pane.
-type SizeStep struct {
-	Direction string
-	Amount    string
-	Count     int
-}
-
-// ParseSizeSteps splits raw (a popup_size.<entrypoint> value) into steps, mirroring
-// _toggle_apply_size in toggle.sh: space-separated "direction:amount:count" entries, each
-// validated independently. A malformed step is skipped; the rest still apply.
-func ParseSizeSteps(raw string) []SizeStep {
-	amountPattern := regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
-	countPattern := regexp.MustCompile(`^[1-9][0-9]*$`)
-
-	var steps []SizeStep
-	for field := range strings.FieldsSeq(raw) {
-		direction, amount, countStr := splitStep(field)
-
-		switch direction {
-		case "left", "right", "up", "down":
-		default:
-			continue
-		}
-		if !amountPattern.MatchString(amount) {
-			continue
-		}
-		if !countPattern.MatchString(countStr) {
-			continue
-		}
-
-		count, err := strconv.Atoi(countStr)
-		if err != nil {
-			continue
-		}
-		steps = append(steps, SizeStep{Direction: direction, Amount: amount, Count: count})
-	}
-	return steps
-}
-
-// splitStep mirrors bash's `IFS=':' read -r direction amount count <<<"${step}"`: fields beyond
-// the third are folded into count, and fields past the end of the input are "".
-func splitStep(field string) (direction, amount, count string) {
-	parts := strings.SplitN(field, ":", stepFields)
-	if len(parts) > 0 {
-		direction = parts[0]
-	}
-	if len(parts) > 1 {
-		amount = parts[1]
-	}
-	if len(parts) > stepFields-1 {
-		count = parts[2]
-	}
-	return direction, amount, count
 }
