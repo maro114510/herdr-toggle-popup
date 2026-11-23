@@ -26,11 +26,14 @@ const (
 	publishTag        = "v1.2.3"
 	boolTrue          = "true"
 	boolFalse         = "false"
+
+	// darwinAMD64Asset is shared with reproducible_build_script_test.go.
+	darwinAMD64Asset = "toggle-popup_darwin_amd64"
 )
 
 func publishRequiredAssets() []string {
 	return []string{
-		"toggle-popup_darwin_amd64",
+		darwinAMD64Asset,
 		"toggle-popup_darwin_arm64",
 		"toggle-popup_linux_amd64",
 		"toggle-popup_linux_arm64",
