@@ -98,6 +98,7 @@ The workflow file is the source of truth; keep this table in sync when it change
 | [.github/rulesets/release-tags.json](./.github/rulesets/release-tags.json) | Tag ruleset applied to `refs/tags/v*` |
 | [scripts/reproducible-build.sh](./scripts/reproducible-build.sh) | Builds the four release targets twice and verifies their digests and version |
 | [scripts/generate-sbom.sh](./scripts/generate-sbom.sh) | SBOM generation and validation for the release binaries |
+| [scripts/publish-release.sh](./scripts/publish-release.sh) | Publishes the draft release once every asset is attached and confirms it is immutable |
 | [herdr-plugin.toml](./herdr-plugin.toml) | Plugin manifest, actions, and panes |
 | [.github/workflows/](./.github/workflows) | CI and release automation |
 | [docs/design/reproducible-builds.md](./docs/design/reproducible-builds.md) | Fixed release-build inputs, verification, and reproducibility limits |

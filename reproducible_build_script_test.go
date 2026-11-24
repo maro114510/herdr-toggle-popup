@@ -72,7 +72,7 @@ func TestReproducibleBuildScriptAcceptsMatchingIndependentBuilds(t *testing.T) {
 		t.Fatalf("reproducible-build.sh failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 	for _, asset := range []string{
-		"toggle-popup_darwin_amd64",
+		darwinAMD64Asset,
 		"toggle-popup_darwin_arm64",
 		"toggle-popup_linux_amd64",
 		"toggle-popup_linux_arm64",
@@ -98,7 +98,7 @@ func TestReproducibleBuildScriptFailsOnDigestMismatch(t *testing.T) {
 	}
 	for _, want := range []string{
 		"digest mismatch",
-		"toggle-popup_darwin_amd64",
+		darwinAMD64Asset,
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr = %q, want it to contain %q", stderr, want)

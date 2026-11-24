@@ -45,6 +45,17 @@ gh attestation verify ./toggle-popup_darwin_arm64 \
 
 `gh attestation verify` recomputes the file digest and rejects an altered binary. Releases published before attestation support have no attestation, so verification fails.
 
+## Verify a release is immutable
+
+The release job attaches every asset to a draft and publishes it last, then fails unless GitHub reports the release immutable. An immutable release keeps its tag and assets fixed, so a download cannot be replaced after publication.
+
+```bash
+gh release view vX.Y.Z --repo maro114510/herdr-toggle-popup --json isImmutable --jq .isImmutable
+gh release verify vX.Y.Z --repo maro114510/herdr-toggle-popup
+```
+
+The first command prints `true` for an immutable release, and the second checks the release attestation. Releases published before this change are not immutable.
+
 ## Verify a release tag
 
 Every release tag is annotated and signed. Verify the tag before you trust the release notes or the assets attached to them:
